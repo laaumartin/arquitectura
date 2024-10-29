@@ -1,0 +1,1 @@
+This directory contains templates for all CMakeFiles.txt in the project.
