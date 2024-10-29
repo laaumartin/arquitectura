@@ -34,22 +34,19 @@ int cvalid(const string& w3, const vector<string>& words, int w4, int w5) {
     return 0;
 }
 
-int main() {
-    vector<string> words;
-    string w;
-    cout << "end them with a '.': ";
-    while (cin >> w && w != ".") {
-        words.push_back(w);
-    }
+// Función para procesar los argumentos
+int processArguments(const vector<string>& words) {
     if (words.size() < 3) {
         cout << "Error: Invalid number of arguments: " << words.size() << endl;
         return -1;
     }
-	string wthree = words[2];
-    if (wthree != "info" && wthree != "maxlevel" && wthree != "resize" &&  wthree != "cutfreq" && wthree != "compress") {
+
+    string wthree = words[2];
+    if (wthree != "info" && wthree != "maxlevel" && wthree != "resize" && wthree != "cutfreq" && wthree != "compress") {
         cout << "Error: Invalid argument 3: " << wthree << endl;
         return -1;
     }
+
     int w4 = 0, w5 = 0;
     try {
         if (words.size() > 3) {
@@ -62,8 +59,6 @@ int main() {
         cout << "Error: Invalid argument" << endl;
         return -1;
     }
-    if (cvalid(wthree, words, w4, w5) != 0) {
-        return -1;
-    }
-    return 0;
+
+    return cvalid(wthree, words, w4, w5);
 }
