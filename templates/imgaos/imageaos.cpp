@@ -8,7 +8,7 @@
 using namespace std;
 
 struct Pixel {
-    unsigned char red;   // Use uint16_t to accommodate up to 65535 if needed. se puede cambiar por 'unsigned char'
+    unsigned char red;  
     unsigned char green;
     unsigned char blue;
 };
@@ -46,10 +46,11 @@ bool filePMM(const string &file , AOS &image) {
     int pixelCount = image.width * image.height;
     image.pixels.resize(pixelCount); // Redimensionate the vector of pixels
 
+    int bytesPerColor= (image.maxval<=255) ? 1: 2; //assignates 1 if maxval<255 and 2 otherwise
     for (int i = 0; i < pixelCount; ++i) {
-        ifs.read(reinterpret_cast<char*>(&image.pixels[i].red), 1);
-        ifs.read(reinterpret_cast<char*>(&image.pixels[i].green), 1);
-        ifs.read(reinterpret_cast<char*>(&image.pixels[i].blue), 1);
+        ifs.read(reinterpret_cast<char*>(&image.pixels[i].red), bytesPerColor);
+        ifs.read(reinterpret_cast<char*>(&image.pixels[i].green), bytesPerColor);
+        ifs.read(reinterpret_cast<char*>(&image.pixels[i].blue), bytesPerColor);
     }
     return true;
 }
