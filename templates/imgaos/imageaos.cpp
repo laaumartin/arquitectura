@@ -8,7 +8,7 @@
 using namespace std;
 
 struct Pixel {
-    unsigned char red;  
+    unsigned char red;  //puede que  este tipo de variable nos de fallos ya que solo soporta 1 byte de info. habria que preguntar
     unsigned char green;
     unsigned char blue;
 };
@@ -55,3 +55,19 @@ bool filePMM(const string &file , AOS &image) {
     return true;
 }
 
+//function 2
+void scaleIntensityAOS(SOA& image, int oldMaxIntensity, int newMaxIntensity) {
+    int pixelCount = image.pixels.size(); //para saber el numero de pixels
+
+    for (int i = 0; i < pixelCount; ++i) {
+        //using the formula from the statement
+        image.red[i] = static_cast<unsigned char>(round(image.pixels[i].red * newMaxIntensity / oldMaxIntensity));
+        image.green[i] = static_cast<unsigned char>(round(image.pixels[i].green * newMaxIntensity / oldMaxIntensity));
+        image.blue[i] = static_cast<unsigned char>(round(image.pixels[i].blue* newMaxIntensity / oldMaxIntensity));
+
+        // esto es para corroborar que esta dentro del rango nuevo lo ha añadido chatgpt pero yo lo quitaria
+        image.pixels[i].red = clamp(image.pixels[i].red, 0, newMaxIntensity);
+        image.pixels[i].green = clamp(image.pixels[i].green, 0, newMaxIntensity);
+        image.pixels[i].blue = clamp(image.pixels[i].blue, 0, newMaxIntensity);
+    }
+}
