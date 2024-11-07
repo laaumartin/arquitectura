@@ -1,11 +1,20 @@
 #include <vector>
 #include <string>
-#include<stdexcept>
+#include <stdexcept>
 #include <fstream>
 #include <iostream>
-#include<cmath>
-#include <algorithm> 
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+#include <limits>
+
 using namespace std;
+
+// Constants to replace magic numbers
+const int MAX_COLOR_VALUE = 65536;
+const int MAX_BYTE_VALUE = 255;
+const int COLOR_COMPONENTS = 3;
+const float EPSILON = 1e-5;
 
 struct SOA {
     int width;
@@ -14,126 +23,143 @@ struct SOA {
     vector<unsigned char> red;
     vector<unsigned char> green;
     vector<unsigned char> blue;
-
 };
-// function 2.1
-bool filePMM(const string &file , SOA &image) {
-    ifstream ifs(file.c_str(), ios::binary);
-    if (!ifs.is_open() ) {
-        cerr<<"not possible to open the file" <<file<<endl;
-        return false;
-    }
-    //check if the magic number identifying the file type is  P6
-    string magicnb;
-    ifs >> magicnb;
-    if(magicnb.compare("P6") !=0){
-        cerr<<"The PMM format is not the correct one"<<endl;
-        return false;
-    }
-    ifs>>image.width>>image.height>>image.maxval;
-    if (image.maxval<=0 || image.maxval >=65536) {
-        cerr<<"the maximum color value is not inside the range"<<endl;
-        return false;
-    }
-    ifs.ignore(); //ignoring white spaces
-    int pixel = image.height*image.width;
-    int bytes = 1 ;//if the image maxval<255
-    if(image.maxval>255) {
-        bytes=2; // if it is bigger than 255 then it will take 2 bytes
-    }
-    // resize the bytes of each color depending on the maximum value
-    image.red.resize(bytes *pixel);
-    image.green.resize(bytes *pixel);
-    image.blue.resize(bytes *pixel);
-    // order each pixel color component into arrays
-    for (int i = 0; i < pixel; i++) {
+
+// Utility function to resize image color vectors
+void resizeImageVectors(SOA &image, int pixelCount, int bytes) {
+    image.red.resize(bytes * pixelCount);
+    image.green.resize(bytes * pixelCount);
+    image.blue.resize(bytes * pixelCount);
+}
+
+// Utility function to read pixels from file
+void readImagePixels(ifstream &ifs, SOA &image, int pixelCount, int bytes) {
+    for (int i = 0; i < pixelCount; i++) {
         ifs.read(reinterpret_cast<char*>(&image.red[i * bytes]), bytes);
         ifs.read(reinterpret_cast<char*>(&image.green[i * bytes]), bytes);
         ifs.read(reinterpret_cast<char*>(&image.blue[i * bytes]), bytes);
-
     }
 }
 
-//function2.2 
-//vector de rojos, vector de verdes, vector de azules, antigua intensidad, nueva intensidad
-void scaleIntensitySOA(SOA& image, int oldMaxIntensity, int newMaxIntensity) {
-    int pixelCount = image.red.size(); //suponiendo que todos tienen el mismo numero
+// Function 2.1: Load PMM File with exception handling
+bool filePMM(const string &file, SOA &image) {
+    ifstream ifs(file.c_str(), ios::binary);
+    if (!ifs.is_open()) {
+        throw runtime_error("Not possible to open the file " + file);
+    }
+    string magicnb;
+    ifs >> magicnb;
+    if (magicnb != "P6") {
+        throw runtime_error("The PMM format is not the correct one");
+    }
 
+    ifs >> image.width >> image.height >> image.maxval;
+    if (image.maxval <= 0 || image.maxval >= MAX_COLOR_VALUE) {
+        throw runtime_error("The maximum color value is out of range");
+    }
+    ifs.ignore();
+
+    int pixelCount = image.width * image.height;
+    int bytes = (image.maxval > MAX_BYTE_VALUE) ? 2 : 1;
+    resizeImageVectors(image, pixelCount, bytes);
+    readImagePixels(ifs, image, pixelCount, bytes);
+
+    return true;
+}
+
+// Function 2.2: Scale Intensity with clamping
+void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIntensity) {
+    const int pixelCount = static_cast<int>(image.red.size());
     for (int i = 0; i < pixelCount; ++i) {
-        //formula que da el profe. round es para que sea entero
-        image.red[i] = static_cast<unsigned char>(round(image.red[i] * newMaxIntensity / oldMaxIntensity));
-        image.green[i] = static_cast<unsigned char>(round(image.green[i] * newMaxIntensity / oldMaxIntensity));
-        image.blue[i] = static_cast<unsigned char>(round(image.blue[i] * newMaxIntensity / oldMaxIntensity));
-
-        // esto es para corroborar que esta dentro del rango nuevo lo ha añadido chatgpt pero yo lo quitaria
-        image.red[i] = clamp(image.red[i], 0, newMaxIntensity);
-        image.green[i] = clamp(image.green[i], 0, newMaxIntensity);
-        image.blue[i] = clamp(image.blue[i], 0, newMaxIntensity);
+        image.red[i] = static_cast<unsigned char>(clamp(round(image.red[i] * newMaxIntensity / oldMaxIntensity), 0, newMaxIntensity));
+        image.green[i] = static_cast<unsigned char>(clamp(round(image.green[i] * newMaxIntensity / oldMaxIntensity), 0, newMaxIntensity));
+        image.blue[i] = static_cast<unsigned char>(clamp(round(image.blue[i] * newMaxIntensity / oldMaxIntensity), 0, newMaxIntensity));
     }
 }
 
-//function 2.3 
-void sizescaling ( int newheight, int newwidth, SOA &image , SOA &newimage) {
-    newimage.height = newheight;
-    newimage.width = newwidth;
+// Helper function for bilinear interpolation in size scaling
+unsigned char interpolatePixel(const vector<unsigned char> &color, int xl, int yl, int xh, int yh, float x, float y, int width) {
+    float c1 = color[yl * width + xl] * (xh - x) + color[yl * width + xh] * (x - xl);
+    float c2 = color[yh * width + xl] * (xh - x) + color[yh * width + xh] * (x - xl);
+    return static_cast<unsigned char>(c1 * (yh - y) + c2 * (y - yl));
+}
 
-    for (int ynew=0; ynew< newheight; ++ynew) {
-        for (int xnew = 0; xnew < newwidth; ++xnew) {
-            //the division for obtaining x and y
-            float x = xnew*(image.width-1) / static_cast<float>(newwidth-1); //static is for transforming an element into a float point
-            float y = ynew*(image.height-1) / static_cast<float>(newheight-1);
-            //floors of each variable
+// Function 2.3: Size Scaling with bilinear interpolation
+void sizescaling(const int newHeight, const int newWidth, const SOA &image, SOA &newImage) {
+    newImage.height = newHeight;
+    newImage.width = newWidth;
+    newImage.red.resize(newHeight * newWidth);
+    newImage.green.resize(newHeight * newWidth);
+    newImage.blue.resize(newHeight * newWidth);
+
+    for (int ynew = 0; ynew < newHeight; ++ynew) {
+        for (int xnew = 0; xnew < newWidth; ++xnew) {
+            float x = xnew * (image.width - 1) / static_cast<float>(newWidth - 1);
+            float y = ynew * (image.height - 1) / static_cast<float>(newHeight - 1);
             int xl = static_cast<int>(floor(x));
             int yl = static_cast<int>(floor(y));
-            //ceils of each variable
             int xh = static_cast<int>(ceil(x));
             int yh = static_cast<int>(ceil(y));
-            // bilineal interpolation 
-            auto interpolate = [&](const vector<unsigned char> color ){ //color refers to the different colors of the image
-                float c1= color[yl*image.width + xl]* (xh-x) + color[yl*image.width + xh]*(x-xl);
-                float c2= color[yh*image.width + xl]* (xh-x) + color[yh*image.width + xh]*(x-xl);
-                unsigned char interpolatedcolor = static_cast<unsigned char>(c1 * (yh - y) + c2 * (y - yl));
-                return interpolatedcolor;
-            };
-            //New pixel index for the new image
-            int newindex =ynew* newwidth + xnew;
-            // resize colors
-            newimage.red[newindex] = interpolate(image.red);
-            newimage.green[newindex] = interpolate(image.green);
-            newimage.blue[newindex] = interpolate(image.blue);
+
+            int newIndex = ynew * newWidth + xnew;
+            newImage.red[newIndex] = interpolatePixel(image.red, xl, yl, xh, yh, x, y, image.width);
+            newImage.green[newIndex] = interpolatePixel(image.green, xl, yl, xh, yh, x, y, image.width);
+            newImage.blue[newIndex] = interpolatePixel(image.blue, xl, yl, xh, yh, x, y, image.width);
         }
     }
 }
-// function 2.4 
-void removeLeastFrequentColors(SOA& image, int n) {
-    int pixelCount = image.width * image.height;
+
+// Helper for color frequency calculation
+vector<int> calculateColorFrequencies(const SOA &image, const int pixelCount) {
     vector<int> freq(pixelCount, 0);
-    for (int i = 0; i < pixelCount; ++i)  // frecuencia de cada color en cada pixel
-        for (int j = 0; j < pixelCount; ++j)
-            if (image.red[i] == image.red[j] && image.green[i] == image.green[j] && image.blue[i] == image.blue[j])
-                freq[i]++;
-    vector<int> indices(pixelCount);
-    iota(indices.begin(), indices.end(), 0); // crear vector con indices ordenados
-    sort(indices.begin(), indices.end(), [&](int a, int b) { // ordenar menos frecuentes y si es empate se miran los colores
-        return freq[a] < freq[b] || (freq[a] == freq[b] && tie(image.blue[a], image.green[a], image.red[a]) > tie(image.blue[b], image.green[b], image.red[b]));
-    });
-    vector<int> colorsToRemove(indices.begin(), indices.begin() + n); // se menten los menos frecuentes para eliminarlos
-    vector<int> replacements(pixelCount, -1);//se inicia con menos uno pq indica q no se reemplazan
-    for (int idx : colorsToRemove) { // ver cual es el color mas cercano
-        double minDist = numeric_limits<double>::max();//max para q cualquiera sea menor
+    for (int i = 0; i < pixelCount; ++i) {
         for (int j = 0; j < pixelCount; ++j) {
-            if (find(colorsToRemove.begin(), colorsToRemove.end(), j) != colorsToRemove.end()) continue; //pasar de los menos frecuentes
-            double dist = sqrt(pow(image.red[idx] - image.red[j], 2) + pow(image.green[idx] - image.green[j], 2) + pow(image.blue[idx] - image.blue[j], 2)); //calcular la distancia
-            if (dist < minDist) minDist = dist, replacements[idx] = j; //actualizarla
+            if (image.red[i] == image.red[j] && image.green[i] == image.green[j] && image.blue[i] == image.blue[j]) {
+                freq[i]++;
+            }
         }
     }
-    for (int i = 0; i < pixelCount; ++i) { //cambiar los pixeles
-        if (replacements[i] != -1) {//pa ver si hay q reemplazarlo
+    return freq;
+}
+
+// Function to find closest color by distance
+int findClosestColor(const SOA &image, int idx, const vector<int> &excludedIndices) {
+    double minDist = numeric_limits<double>::max();
+    int closestIdx = -1;
+    for (int j = 0; j < image.width * image.height; ++j) {
+        if (find(excludedIndices.begin(), excludedIndices.end(), j) != excludedIndices.end()) continue;
+        double dist = sqrt(pow(image.red[idx] - image.red[j], 2) + pow(image.green[idx] - image.green[j], 2) + pow(image.blue[idx] - image.blue[j], 2));
+        if (dist < minDist) {
+            minDist = dist;
+            closestIdx = j;
+        }
+    }
+    return closestIdx;
+}
+
+// Function 2.4: Remove Least Frequent Colors
+void removeLeastFrequentColors(SOA &image, const int n) {
+    const int pixelCount = image.width * image.height;
+    vector<int> freq = calculateColorFrequencies(image, pixelCount);
+    vector<int> indices(pixelCount);
+    iota(indices.begin(), indices.end(), 0);
+
+    sort(indices.begin(), indices.end(), [&](int a, int b) {
+        return freq[a] < freq[b] || (freq[a] == freq[b] && tie(image.blue[a], image.green[a], image.red[a]) > tie(image.blue[b], image.green[b], image.red[b]));
+    });
+
+    vector<int> colorsToRemove(indices.begin(), indices.begin() + n);
+    vector<int> replacements(pixelCount, -1);
+    for (int idx : colorsToRemove) {
+        replacements[idx] = findClosestColor(image, idx, colorsToRemove);
+    }
+
+    for (int i = 0; i < pixelCount; ++i) {
+        if (replacements[i] != -1) {
             int replaceIdx = replacements[i];
-            image.red[i] = image.red[replaceIdx]; //y esto es pa cambiar el menos frecuente por el que este mas cerca
+            image.red[i] = image.red[replaceIdx];
             image.green[i] = image.green[replaceIdx];
             image.blue[i] = image.blue[replaceIdx];
         }
     }
 }
-
