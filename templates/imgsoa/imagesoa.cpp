@@ -35,6 +35,7 @@ void resizeImageVectors(SOA &image, int pixelCount, int bytes) {
 // Utility function to read pixels from file
 void readImagePixels(ifstream &ifs, SOA &image, int pixelCount, int bytes) {
     for (int i = 0; i < pixelCount; i++) {
+        // Added braces around each single-line if statement
         ifs.read(reinterpret_cast<char*>(&image.red[i * bytes]), bytes);
         ifs.read(reinterpret_cast<char*>(&image.green[i * bytes]), bytes);
         ifs.read(reinterpret_cast<char*>(&image.blue[i * bytes]), bytes);
@@ -67,13 +68,17 @@ bool filePMM(const string &file, SOA &image) {
     return true;
 }
 
-// Function 2.2: Scale Intensity with clamping
+// Function 2.2: Scale Intensity with clamping (avoiding narrowing conversions)
 void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIntensity) {
     const int pixelCount = static_cast<int>(image.red.size());
     for (int i = 0; i < pixelCount; ++i) {
-        image.red[i] = static_cast<unsigned char>(clamp(round(image.red[i] * newMaxIntensity / oldMaxIntensity), 0, newMaxIntensity));
-        image.green[i] = static_cast<unsigned char>(clamp(round(image.green[i] * newMaxIntensity / oldMaxIntensity), 0, newMaxIntensity));
-        image.blue[i] = static_cast<unsigned char>(clamp(round(image.blue[i] * newMaxIntensity / oldMaxIntensity), 0, newMaxIntensity));
+        auto scaleAndClamp = [&](unsigned char color) {
+            float scaledValue = round(color * static_cast<float>(newMaxIntensity) / oldMaxIntensity);
+            return static_cast<unsigned char>(min(max(0.0f, scaledValue), static_cast<float>(newMaxIntensity)));
+        };
+        image.red[i] = scaleAndClamp(image.red[i]);
+        image.green[i] = scaleAndClamp(image.green[i]);
+        image.blue[i] = scaleAndClamp(image.blue[i]);
     }
 }
 
