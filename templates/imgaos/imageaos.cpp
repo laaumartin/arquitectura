@@ -74,8 +74,88 @@ void scaleIntensityAOS(SOA& image, int oldMaxIntensity, int newMaxIntensity) {
     }
 }
 
+//function 3: Size Scaling with bilinear interpolation
 
-//function 5
+void sizescaling(const int newHeight, const int newWidth, const AOS &image, AOS &newImage) {
+    newImage.height = newHeight;
+    newImage.width = newWidth;
+    newImage.red.resize(newHeight * newWidth);
+    newImage.green.resize(newHeight * newWidth);
+    newImage.blue.resize(newHeight * newWidth);
+
+    for (int ynew = 0; ynew < newHeight; ++ynew) {
+        for (int xnew = 0; xnew < newWidth; ++xnew) {
+            float x = xnew * (image.width - 1) / static_cast<float>(newWidth - 1);
+            float y = ynew * (image.height - 1) / static_cast<float>(newHeight - 1);
+            int xl = static_cast<int>(floor(x));
+            int yl = static_cast<int>(floor(y));
+            int xh = static_cast<int>(ceil(x));
+            int yh = static_cast<int>(ceil(y));
+
+            int newIndex = ynew * newWidth + xnew;
+            newImage.pixels[newIndex].red = interpolatePixel(image, xl, yl, xh, yh, x, y, image.width);
+            newImage.pixels[newIndex].green = interpolatePixel(image, xl, yl, xh, yh, x, y, image.width);
+            newImage.pixels[newIndex].blue = interpolatePixel(image, xl, yl, xh, yh, x, y, image.width);
+        }
+    }
+}
+
+// Helper for color frequency calculation. ESTO LO HE COPIADO DE SAO PERO NO SE PARA QUE ES
+vector<int> calculateColorFrequencies(const AOS &image, const int pixelCount) {
+    vector<int> freq(pixelCount, 0);
+    for (int i = 0; i < pixelCount; ++i) {
+        for (int j = 0; j < pixelCount; ++j) {
+            if (image.pixels[i].red == image.pixels[j].red && image.pixels[i].green == image.pixels[j].green && image.pixels[i].blue == image.pixels[j].blue) {
+                freq[i]++;
+            }
+        }
+    }
+    return freq;
+}
+
+// Function to find closest color by distance
+int findClosestColor(const AOS &image, int idx, const vector<int> &excludedIndices) {
+    double minDist = numeric_limits<double>::max();
+    int closestIdx = -1;
+    for (int j = 0; j < image.width * image.height; ++j) {
+        if (find(excludedIndices.begin(), excludedIndices.end(), j) != excludedIndices.end()) continue;
+        double dist = sqrt(pow(image.pixels[idx].red - image.pixels[j].red, 2) + pow(image.pixels[idx].green - image.pixels[j].green, 2) + pow(image.pixels[idx].blue - image.pixels[j].blue, 2));
+        if (dist < minDist) {
+            minDist = dist;
+            closestIdx = j;
+        }
+    }
+    return closestIdx;
+}
+
+// Function 4: Remove Least Frequent Colors
+void removeLeastFrequentColors(AOS &image, const int n) {
+    const int pixelCount = image.width * image.height;
+    vector<int> freq = calculateColorFrequencies(image, pixelCount);
+    vector<int> indices(pixelCount);
+    iota(indices.begin(), indices.end(), 0);
+
+    sort(indices.begin(), indices.end(), [&](int a, int b) {
+        return freq[a] < freq[b] || (freq[a] == freq[b] && tie(image.pixels[a].blue, image.pixels[a].green, image.pixels[a].red) > tie(image.pixels[b].blue, image.pixels[b].green, image.pixels[b].red));
+    });
+
+    vector<int> colorsToRemove(indices.begin(), indices.begin() + n);
+    vector<int> replacements(pixelCount, -1);
+    for (int idx : colorsToRemove) {
+        replacements[idx] = findClosestColor(image, idx, colorsToRemove);
+    }
+
+    for (int i = 0; i < pixelCount; ++i) {
+        if (replacements[i] != -1) {
+            int replaceIdx = replacements[i];
+            image.pixels[i].red = image.pixels[replaceIdx].red;
+            image.pixels[i].green = image.pixels[replaceIdx].green;
+            image.pixels[i].blue = image.pixels[replaceIdx].blue;
+        }
+    }
+}
+
+//Function 5
 
 void compressionCPPM(const string &outputFile, AOS &image) {
     ofstream ofs(outputFile, ios::binary);
