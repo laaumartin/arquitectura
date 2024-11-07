@@ -10,7 +10,7 @@
 using namespace std;
 
 struct Pixel {
-    unsigned char red;  //puede que  este tipo de variable nos de fallos ya que solo soporta 1 byte de info. habria que preguntar
+    unsigned char red;  //puede que  este tipo de variable nos de fallos ya que solo soporta 1 byte de info. habria que preguntar. unsigned short
     unsigned char green;
     unsigned char blue;
 };
@@ -58,7 +58,7 @@ bool filePMM(const string &file , AOS &image) {
 }
 
 //function 2
-void scaleIntensityAOS(SOA& image, int oldMaxIntensity, int newMaxIntensity) {
+void scaleIntensityAOS(AOS& image, int oldMaxIntensity, int newMaxIntensity) {
     int pixelCount = image.pixels.size(); //para saber el numero de pixels
 
     for (int i = 0; i < pixelCount; ++i) {
@@ -101,17 +101,24 @@ void sizescaling(const int newHeight, const int newWidth, const AOS &image, AOS 
 }
 
 // Helper for color frequency calculation. ESTO LO HE COPIADO DE SAO PERO NO SE PARA QUE ES
+#include <unordered_map> //no se si esto se puede. si no hacemos lo mismo que en soa
+
 vector<int> calculateColorFrequencies(const AOS &image, const int pixelCount) {
-    vector<int> freq(pixelCount, 0);
+    unordered_map<tuple<unsigned short, unsigned short, unsigned short>, int> freqMap;
+
+    for (const auto& pixel : image.pixels) {
+        auto color = make_tuple(pixel.red, pixel.green, pixel.blue);
+        freqMap[color]++;
+    }
+
+    vector<int> freq(pixelCount);
     for (int i = 0; i < pixelCount; ++i) {
-        for (int j = 0; j < pixelCount; ++j) {
-            if (image.pixels[i].red == image.pixels[j].red && image.pixels[i].green == image.pixels[j].green && image.pixels[i].blue == image.pixels[j].blue) {
-                freq[i]++;
-            }
-        }
+        auto color = make_tuple(image.pixels[i].red, image.pixels[i].green, image.pixels[i].blue);
+        freq[i] = freqMap[color];
     }
     return freq;
 }
+
 
 // Function to find closest color by distance
 int findClosestColor(const AOS &image, int idx, const vector<int> &excludedIndices) {
@@ -218,4 +225,39 @@ void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
         ofs.write(reinterpret_cast<const char*>(&byte), 1);
         value >>= 8;  // Desplazar a la derecha 8 bits para el siguiente byte
     }
+}
+
+//para sizescaling
+unsigned char interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, int width, char colorComponent) {
+    // Obtiene los índices de los cuatro píxeles vecinos
+    int idx_ll = yl * width + xl; // índice de (xl, yl)
+    int idx_hl = yl * width + xh; // índice de (xh, yl)
+    int idx_lh = yh * width + xl; // índice de (xl, yh)
+    int idx_hh = yh * width + xh; // índice de (xh, yh)
+
+    // Extrae el componente de color solicitado para cada píxel vecino
+    unsigned char c_ll, c_hl, c_lh, c_hh;
+    if (colorComponent == 'r') {
+        c_ll = image.pixels[idx_ll].red;
+        c_hl = image.pixels[idx_hl].red;
+        c_lh = image.pixels[idx_lh].red;
+        c_hh = image.pixels[idx_hh].red;
+    } else if (colorComponent == 'g') {
+        c_ll = image.pixels[idx_ll].green;
+        c_hl = image.pixels[idx_hl].green;
+        c_lh = image.pixels[idx_lh].green;
+        c_hh = image.pixels[idx_hh].green;
+    } else {
+        c_ll = image.pixels[idx_ll].blue;
+        c_hl = image.pixels[idx_hl].blue;
+        c_lh = image.pixels[idx_lh].blue;
+        c_hh = image.pixels[idx_hh].blue;
+    }
+
+    // Interpolación bilineal
+    float c1 = c_ll + (c_hl - c_ll) * (x - xl);
+    float c2 = c_lh + (c_hh - c_lh) * (x - xl);
+    float interpolatedColor = c1 + (c2 - c1) * (y - yl);
+
+    return static_cast<unsigned char>(round(interpolatedColor));
 }
