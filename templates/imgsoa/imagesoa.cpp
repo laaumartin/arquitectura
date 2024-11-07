@@ -168,3 +168,73 @@ void removeLeastFrequentColors(SOA &image, const int n) {
         }
     }
 }
+void compressionCPPM(const string &outputFile, SOA &image) {
+    ofstream ofs(outputFile, binary);
+    if (!ofs || image.maxval <= 0 || image.maxval >= MAX_COLOR_VALUE) {
+        cerr << "Error al abrir el archivo o valor máximo fuera de rango" << endl;
+        return;
+    }
+    SOA colorTable;
+    vector<int> pixelIndices;
+    int totalPixels = image.width * image.height;
+    for (int i=0; i < totalPixels; i++) {
+        bool found = false;
+        for (int j = 0; j < colorTable.red.size(); ++j) {
+            if (image.red[i] == colorTable.red[j] &&
+                image.green[i] == colorTable.green[j] &&
+                image.blue[i] == colorTable.blue[j]) {
+                pixelIndices.push_back(j);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            colorTable.red.push_back(image.red[i]);
+            colorTable.green.push_back(image.green[i]);
+            colorTable.blue.push_back(image.blue[i]);
+            pixelIndices.push_back(colorTable.red.size() - 1);
+        }
+    }
+    ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.red.size() << "\n";
+    writeColorTable(ofs, colorTable, (image.maxval <= MAX_BYTE_VALUE) ? 1 : 2);
+    writePixelIndices(ofs, pixelIndices, colorTable.size());
+    ofs.close();
+}
+
+// auxiliares para no pasarnos de 40 lineas por funcion 
+
+void writeColorTable(ofstream &ofs, const vector<vector<unsigned char>> &colorTable, int bytesPerColor) {
+    for (int i = 0; i < colorTable.red.size(); ++i) {
+        if (bytesPerColor == 1) {
+            ofs.write(reinterpret_cast<const char*>(&colorTable.red[i]), 1);
+            ofs.write(reinterpret_cast<const char*>(&colorTable.green[i]), 1);
+            ofs.write(reinterpret_cast<const char*>(&colorTable.blue[i]), 1);
+        } else {
+            writeLittleEndian(ofs, colorTable.red[i], 2);
+            writeLittleEndian(ofs, colorTable.green[i], 2);
+            writeLittleEndian(ofs, colorTable.blue[i], 2);
+        }
+    }
+}
+
+void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize) {
+    for (int colorIndex : pixelIndices) {
+        if (colorTableSize <= MAX_BYTE_VALUE+1) {
+            unsigned char index = static_cast<unsigned char>(colorIndex);
+            ofs.write(reinterpret_cast<const char*>(&index), 1);
+        } else if (colorTableSize <= MAX_COLOR_VALUE) {
+            writeLittleEndian(ofs, static_cast<unsigned short>(colorIndex), 2);
+        } else if (colorTableSize <= 4294967296) {
+            writeLittleEndian(ofs, static_cast<unsigned int>(colorIndex), 4);
+        }
+    }
+}
+
+
+void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
+    for (int i = 0; i < byteCount; ++i) {
+        unsigned char byte = value & 0xFF;  // Extraer el byte menos significativo
+        ofs.write(reinterpret_cast<const char*>(&byte), 1);
+        value >>= 8;  // Desplazar a la derecha 8 bits para el siguiente byte
+    }
+}
