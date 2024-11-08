@@ -53,36 +53,47 @@ void writeColorTable(ofstream &ofs, const vector<Pixel> &colorTable, int bytesPe
 void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize);
 void writeLittleEndian(ofstream &ofs, uint32_t value, int byteCount);
 
+
+// Implementación de readLittleEndian para leer en little-endian
+uint32_t readLittleEndian(ifstream &ifs, int byteCount) {
+  uint32_t result = 0;
+  for (int i = 0; i < byteCount; ++i) {
+    uint8_t byte;
+    ifs.read(reinterpret_cast<char*>(&byte), 1);
+    result |= (byte << (8 * i));  // Coloca cada byte en su posición en formato little-endian
+  }
+  return result;
+}
+
 // Función para leer un archivo PPM
-bool filePMM(const string &file , AOS &image) {
+bool filePPM(const string &file , AOS &image) {
   ifstream ifs(file.c_str(), ios::binary);
   if (!ifs.is_open()) {
     cerr << "No es posible abrir el archivo " << file << '\n';
     return false;
   }
+
   string magicnb;
   ifs >> magicnb;
-  const string MAGIC_NUMBER = "P6";
-  if (magicnb != MAGIC_NUMBER) {
+  if (magicnb != "P6") {
     cerr << "El formato del archivo no es correcto (debería ser P6)" << '\n';
     return false;
   }
 
   ifs >> image.width >> image.height >> image.maxval;
-  const int MAX_COLOR_VALUE = 65536;
-  if (image.maxval <= 0 || image.maxval > MAX_COLOR_VALUE) {
+  if (image.maxval <= 0 || image.maxval > 65535) {
     cerr << "El valor máximo de color no está en el rango (1-65535)" << '\n';
     return false;
   }
 
-  ifs.ignore();
+  ifs.ignore();  // Ignorar el salto de línea después del encabezado
 
   int pixelCount = image.width * image.height;
   image.pixels.resize(pixelCount);
 
-  int bytesPerColor = (image.maxval <= 255) ? 1 : 2;
-  for (int i = 0; i < pixelCount; ++i) {
-    if (bytesPerColor == 1) {
+  if (image.maxval <= 255) {
+    // Leer 1 byte por componente de color
+    for (int i = 0; i < pixelCount; ++i) {
       unsigned char r, g, b;
       ifs.read(reinterpret_cast<char*>(&r), 1);
       ifs.read(reinterpret_cast<char*>(&g), 1);
@@ -90,18 +101,16 @@ bool filePMM(const string &file , AOS &image) {
       image.pixels[i].red = r;
       image.pixels[i].green = g;
       image.pixels[i].blue = b;
-    } else {
-      unsigned char buffer[2];
-      ifs.read(reinterpret_cast<char*>(buffer), 2);
-      image.pixels[i].red = buffer[0] | (buffer[1] << 8);
-
-      ifs.read(reinterpret_cast<char*>(buffer), 2);
-      image.pixels[i].green = buffer[0] | (buffer[1] << 8);
-
-      ifs.read(reinterpret_cast<char*>(buffer), 2);
-      image.pixels[i].blue = buffer[0] | (buffer[1] << 8);
+    }
+  } else {
+    // Leer 2 bytes por componente de color en formato little-endian
+    for (int i = 0; i < pixelCount; ++i) {
+      image.pixels[i].red = readLittleEndian(ifs, 2);
+      image.pixels[i].green = readLittleEndian(ifs, 2);
+      image.pixels[i].blue = readLittleEndian(ifs, 2);
     }
   }
+
   return true;
 }
 
