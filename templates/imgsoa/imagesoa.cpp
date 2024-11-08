@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <numeric>
 #include <limits>
+#include <tuple>
 
 using namespace std;
 
@@ -24,6 +25,11 @@ struct SOA {
     vector<unsigned short> green;
     vector<unsigned short> blue;
 };
+void compressionCPPM(const string &outputFile, const SOA &image);
+void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor);
+void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize);
+void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount);
+void writeLittleEndian(ofstream &ofs, unsigned int value, int byteCount);
 
 // Utility function to resize image color vectors
 void resizeImageVectors(SOA &image, int pixelCount, int bytes) {
@@ -36,9 +42,9 @@ void resizeImageVectors(SOA &image, int pixelCount, int bytes) {
 void readImagePixels(ifstream &ifs, SOA &image, int pixelCount, int bytes) {
     for (int i = 0; i < pixelCount; i++) {
         // Added braces around each single-line if statement
-        ifs.read(reinterpret_cast<short*>(&image.red[i * bytes]), bytes);
-        ifs.read(reinterpret_cast<short*>(&image.green[i * bytes]), bytes);
-        ifs.read(reinterpret_cast<short*>(&image.blue[i * bytes]), bytes);
+        ifs.read(reinterpret_cast<char*>(&image.red[i * bytes]), bytes);
+        ifs.read(reinterpret_cast<char*>(&image.green[i * bytes]), bytes);
+        ifs.read(reinterpret_cast<char*>(&image.blue[i * bytes]), bytes);
     }
 }
 
@@ -169,7 +175,7 @@ void removeLeastFrequentColors(SOA &image, const int n) {
     }
 }
 void compressionCPPM(const string &outputFile, SOA &image) {
-    ofstream ofs(outputFile, binary);
+    ofstream ofs(outputFile, std::ios::binary);
     if (!ofs || image.maxval <= 0 || image.maxval >= MAX_COLOR_VALUE) {
         cerr << "Error al abrir el archivo o valor máximo fuera de rango" << endl;
         return;
@@ -199,6 +205,7 @@ void compressionCPPM(const string &outputFile, SOA &image) {
     ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.red.size() << "\n";
     int bytesPerColor = (image.maxval <= MAX_BYTE_VALUE) ? 1 : 2;
     writeColorTable(ofs, colorTable, bytesPerColor);
+    int colorTableSize = colorTable.red.size();
     writePixelIndices(ofs, pixelIndices, colorTable.red.size());
     ofs.close();
 }
@@ -211,9 +218,9 @@ void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
             unsigned short r = static_cast<unsigned short>(colorTable.red[i]);
             unsigned short g = static_cast<unsigned short>(colorTable.green[i]);
             unsigned short b = static_cast<unsigned short>(colorTable.blue[i]);
-            ofs.write(reinterpret_cast<const short*>(&r), 1);
-            ofs.write(reinterpret_cast<const short*>(&g), 1);
-            ofs.write(reinterpret_cast<const short*>(&b), 1);
+            ofs.write(reinterpret_cast<const char*>(&r), 1);
+            ofs.write(reinterpret_cast<const char*>(&g), 1);
+            ofs.write(reinterpret_cast<const char*>(&b), 1);
         } else {
             // Escribir en formato little endian
             writeLittleEndian(ofs, colorTable.red[i], 2);
@@ -223,16 +230,16 @@ void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
     }
 }
 
-void writePixelIndices(ofs, pixelIndices, int colorTable.red.size()) {
+void writePixelIndices(std::ofstream ofs, vector<int> pixelIndices, int colorTableSize) {
     for (int colorIndex : pixelIndices) {
         if (colorTableSize <= MAX_BYTE_VALUE+1) {
-            unsigned short index = static_cast<unsigned short>(colorIndex);
-            ofs.write(reinterpret_cast<const short*>(&index), 1);
+            unsigned char index = static_cast<unsigned char>(colorIndex);
+            ofs.write(reinterpret_cast<const char*>(&index), 1);
         } else if (colorTableSize <= MAX_COLOR_VALUE) {
-            unsigned short index = static_cast<unsigned short>(colorIndex);
+            unsigned char index = static_cast<unsigned char>(colorIndex);
             writeLittleEndian(ofs, index, 2);
         } else if (colorTableSize <= 4294967296) {
-            unsigned short index = static_cast<unsigned short>(colorIndex);
+            unsigned char index = static_cast<unsigned char>(colorIndex);
             writeLittleEndian(ofs, index, 4);
         }
     }
