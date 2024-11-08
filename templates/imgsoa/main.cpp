@@ -1,7 +1,30 @@
-#include <iostream>
+#include <vector>
 #include <string>
+#include <stdexcept>
+#include <fstream>
+#include <iostream>
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+#include <limits>
+#include <tuple>
+
 using namespace std;
-// Assuming all previous functions and SOA struct are defined above this point
+
+// Constants to replace magic numbers
+const int MAX_COLOR_VALUE = 65536;
+const int MAX_BYTE_VALUE = 255;
+const int COLOR_COMPONENTS = 3;
+const float EPSILON = 1e-5;
+
+struct SOA {
+    int width;
+    int height;
+    int maxval;
+    vector<unsigned short> red;
+    vector<unsigned short> green;
+    vector<unsigned short> blue;
+};
 
 int main() {
     // Initialize an SOA structure to hold the image data
