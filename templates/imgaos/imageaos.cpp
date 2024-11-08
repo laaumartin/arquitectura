@@ -114,9 +114,9 @@ void scaleIntensityAOS(AOS& image, int oldMaxIntensity, int newMaxIntensity) {
     image.pixels[i].green = static_cast<unsigned char>(round(image.pixels[i].green * newMaxIntensity / oldMaxIntensity));
     image.pixels[i].blue = static_cast<unsigned char>(round(image.pixels[i].blue * newMaxIntensity / oldMaxIntensity));
 
-    image.pixels[i].red = clamp(image.pixels[i].red, 0, newMaxIntensity);
-    image.pixels[i].green = clamp(image.pixels[i].green, 0, newMaxIntensity);
-    image.pixels[i].blue = clamp(image.pixels[i].blue, 0, newMaxIntensity);
+    //image.pixels[i].red = clamp(image.pixels[i].red, 0, newMaxIntensity);
+    //image.pixels[i].green = clamp(image.pixels[i].green, 0, newMaxIntensity);
+    //image.pixels[i].blue = clamp(image.pixels[i].blue, 0, newMaxIntensity);
   }
 }
 
