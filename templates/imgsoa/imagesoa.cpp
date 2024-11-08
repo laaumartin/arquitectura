@@ -201,7 +201,7 @@ void compressionCPPM(const string &outputFile, SOA &image) {
 
 // auxiliares para no pasarnos de 40 lineas por funcion 
 
-void writeColorTable(ofstream &ofs, const vector<vector<unsigned char>> &colorTable, int bytesPerColor) {
+void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
     for (int i = 0; i < colorTable.red.size(); ++i) {
         if (bytesPerColor == 1) {
             ofs.write(reinterpret_cast<const char*>(&colorTable.red[i]), 1);
@@ -215,7 +215,7 @@ void writeColorTable(ofstream &ofs, const vector<vector<unsigned char>> &colorTa
     }
 }
 
-void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTable.Size) {
+void writePixelIndices(ofs, pixelIndices, int colorTable.red.size()) {
     for (int colorIndex : pixelIndices) {
         if (colorTableSize <= MAX_BYTE_VALUE+1) {
             unsigned char index = static_cast<unsigned char>(colorIndex);
@@ -229,7 +229,7 @@ void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int color
 }
 
 
-void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
+void writeLittleEndian(ofstream &ofs, unsigned int value, int byteCount) {
     for (int i = 0; i < byteCount; ++i) {
         unsigned char byte = value & 0xFF;  // Extraer el byte menos significativo
         ofs.write(reinterpret_cast<const char*>(&byte), 1);
