@@ -10,9 +10,9 @@
 using namespace std;
 
 struct Pixel {
-    unsigned char red;  //puede que  este tipo de variable nos de fallos ya que solo soporta 1 byte de info. habria que preguntar. unsigned short
-    unsigned char green;
-    unsigned char blue;
+    unsigned short red;  //puede que  este tipo de variable nos de fallos ya que solo soporta 1 byte de info. habria que preguntar. unsigned short
+    unsigned short green;
+    unsigned short blue;
 };
 
 struct AOS {
@@ -38,8 +38,8 @@ bool filePMM(const string &file , AOS &image) {
     }
 
     ifs >> image.width >> image.height >> image.maxval;
-    if (image.maxval <= 0 || image.maxval >= 65536) {
-        cerr<<"The maximum color value is not inside the range"<<endl;
+    if (image.maxval <= 0 || image.maxval > 65536) {
+        cerr<<"The maximum color value is not inside the range (1-65535)"<<endl;
         return false;
     }
 
@@ -50,10 +50,29 @@ bool filePMM(const string &file , AOS &image) {
 
     int bytesPerColor= (image.maxval<=255) ? 1: 2; //assignates 1 if maxval<255 and 2 otherwise
     for (int i = 0; i < pixelCount; ++i) {
-        ifs.read(reinterpret_cast<char*>(&image.pixels[i].red), bytesPerColor);
-        ifs.read(reinterpret_cast<char*>(&image.pixels[i].green), bytesPerColor);
-        ifs.read(reinterpret_cast<char*>(&image.pixels[i].blue), bytesPerColor);
+     if (bytesPerColor == 1) {
+        // Leer 1 byte por componente
+        unsigned char r, g, b;
+        ifs.read(reinterpret_cast<char*>(&r), 1);
+        ifs.read(reinterpret_cast<char*>(&g), 1);
+        ifs.read(reinterpret_cast<char*>(&b), 1);
+        image.pixels[i].red = r;
+        image.pixels[i].green = g;
+        image.pixels[i].blue = b;
+        } else {
+        // Leer 2 bytes por componente (little-endian)
+        unsigned char buffer[2];
+        ifs.read(reinterpret_cast<char*>(buffer), 2);
+        image.pixels[i].red = buffer[0] | (buffer[1] << 8);
+
+        ifs.read(reinterpret_cast<char*>(buffer), 2);
+        image.pixels[i].green = buffer[0] | (buffer[1] << 8);
+
+        ifs.read(reinterpret_cast<char*>(buffer), 2);
+        image.pixels[i].blue = buffer[0] | (buffer[1] << 8);
+        }
     }
+
     return true;
 }
 
@@ -63,9 +82,9 @@ void scaleIntensityAOS(AOS& image, int oldMaxIntensity, int newMaxIntensity) {
 
     for (int i = 0; i < pixelCount; ++i) {
         //using the formula from the statement
-        image.red[i] = static_cast<unsigned char>(round(image.pixels[i].red * newMaxIntensity / oldMaxIntensity));
-        image.green[i] = static_cast<unsigned char>(round(image.pixels[i].green * newMaxIntensity / oldMaxIntensity));
-        image.blue[i] = static_cast<unsigned char>(round(image.pixels[i].blue* newMaxIntensity / oldMaxIntensity));
+        image.pixels[i].red = static_cast<unsigned char>(round(image.pixels[i].red * newMaxIntensity / oldMaxIntensity));
+        image.pixels[i].green = static_cast<unsigned char>(round(image.pixels[i].green * newMaxIntensity / oldMaxIntensity));
+        image.pixels[i].blue = static_cast<unsigned char>(round(image.pixels[i].blue* newMaxIntensity / oldMaxIntensity));
 
         // esto es para corroborar que esta dentro del rango nuevo lo ha añadido chatgpt pero yo lo quitaria
         image.pixels[i].red = clamp(image.pixels[i].red, 0, newMaxIntensity);
@@ -228,15 +247,14 @@ void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
 }
 
 //para sizescaling
-unsigned char interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, int width, char colorComponent) {
-    // Obtiene los índices de los cuatro píxeles vecinos
-    int idx_ll = yl * width + xl; // índice de (xl, yl)
-    int idx_hl = yl * width + xh; // índice de (xh, yl)
-    int idx_lh = yh * width + xl; // índice de (xl, yh)
-    int idx_hh = yh * width + xh; // índice de (xh, yh)
+unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent) {
+    int idx_ll = yl * image.width + xl;
+    int idx_hl = yl * image.width + xh;
+    int idx_lh = yh * image.width + xl;
+    int idx_hh = yh * image.width + xh;
 
-    // Extrae el componente de color solicitado para cada píxel vecino
-    unsigned char c_ll, c_hl, c_lh, c_hh;
+    unsigned short c_ll, c_hl, c_lh, c_hh;
+
     if (colorComponent == 'r') {
         c_ll = image.pixels[idx_ll].red;
         c_hl = image.pixels[idx_hl].red;
@@ -259,5 +277,5 @@ unsigned char interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh,
     float c2 = c_lh + (c_hh - c_lh) * (x - xl);
     float interpolatedColor = c1 + (c2 - c1) * (y - yl);
 
-    return static_cast<unsigned char>(round(interpolatedColor));
+    return static_cast<unsigned short>(round(interpolatedColor));
 }
