@@ -6,27 +6,12 @@
 #include <tuple>
 #include <algorithm> // for std::clamp
 #include <unordered_map>
-#include <cmath> 
+#include <cmath>
 #include <numeric> // for std::iota
+#include "imageaos.h"
+#include <map>
 
 using namespace std;
-
-struct Pixel {
-  unsigned short red;
-  unsigned short green;
-  unsigned short blue;
-};
-
-bool operator==(const Pixel& lhs, const Pixel& rhs) {
-  return lhs.red == rhs.red && lhs.green == rhs.green && lhs.blue == rhs.blue;
-}
-
-struct AOS {
-  int width;
-  int height;
-  int maxval;
-  vector<Pixel> pixels; // Vector que almacena cada píxel completo
-};
 
 namespace std {
   template <>
@@ -38,6 +23,7 @@ namespace std {
     }
   };
 }
+
 
 // Declaración de funciones
 void skipComments(ifstream &ifs);
@@ -52,7 +38,6 @@ void compressionCPPM(const string &outputFile, AOS &image);
 void writeColorTable(ofstream &ofs, const vector<Pixel> &colorTable, int bytesPerColor);
 void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize);
 void writeLittleEndian(ofstream &ofs, uint32_t value, int byteCount);
-
 
 // Implementación de readLittleEndian para leer en little-endian
 uint32_t readLittleEndian(ifstream &ifs, int byteCount) {
@@ -113,7 +98,6 @@ bool filePPM(const string &file , AOS &image) {
 
   return true;
 }
-
 // Escalar la intensidad
 void scaleIntensityAOS(AOS& image, int oldMaxIntensity, int newMaxIntensity) {
   int pixelCount = image.pixels.size();
@@ -151,66 +135,98 @@ void sizescaling(const int newHeight, const int newWidth, const AOS &image, AOS 
     }
   }
 }
+// Función auxiliar para calcular la frecuencia de cada color en AOS
+vector<int> calculateColorFrequencies(const AOS &image) {
+    map<tuple<int, int, int>, int> colorFrequency;
+    vector<int> freq(image.pixels.size(), 0);
 
-// Función para calcular frecuencias de color
-vector<int> calculateColorFrequencies(const AOS &image, const int pixelCount) {
-  unordered_map<tuple<unsigned short, unsigned short, unsigned short>, int> freqMap;
+    for (const auto& pixel : image.pixels) {
+        tuple<int, int, int> color = make_tuple(pixel.red, pixel.green, pixel.blue);
+        colorFrequency[color]++;
+    }
 
-  for (const auto& pixel : image.pixels) {
-    auto color = make_tuple(pixel.red, pixel.green, pixel.blue);
-    freqMap[color]++;
-  }
-
-  vector<int> freq(pixelCount);
-  for (int i = 0; i < pixelCount; ++i) {
-    auto color = make_tuple(image.pixels[i].red, image.pixels[i].green, image.pixels[i].blue);
-    freq[i] = freqMap[color];
-  }
-  return freq;
+    for (size_t i = 0; i < image.pixels.size(); ++i) {
+        tuple<int, int, int> color = make_tuple(image.pixels[i].red, image.pixels[i].green, image.pixels[i].blue);
+        freq[i] = colorFrequency[color];
+    }
+    return freq;
 }
 
-// Buscar color más cercano
+// Encontrar el color más cercano en base a la distancia euclidiana
 int findClosestColor(const AOS &image, int idx, const vector<int> &excludedIndices) {
-  double minDist = numeric_limits<double>::max();
-  int closestIdx = -1;
-  for (int j = 0; j < image.width * image.height; ++j) {
-    if (find(excludedIndices.begin(), excludedIndices.end(), j) != excludedIndices.end()) continue;
-    double dist = sqrt(pow(image.pixels[idx].red - image.pixels[j].red, 2) +
-                       pow(image.pixels[idx].green - image.pixels[j].green, 2) +
-                       pow(image.pixels[idx].blue - image.pixels[j].blue, 2));
-    if (dist < minDist) {
-      minDist = dist;
-      closestIdx = j;
+    double minDist = numeric_limits<double>::max();
+    int closestIdx = -1;
+
+    for (int j = 0; j < image.pixels.size(); ++j) {
+        if (find(excludedIndices.begin(), excludedIndices.end(), j) != excludedIndices.end()) continue;
+
+        double dist = sqrt(pow(image.pixels[idx].red - image.pixels[j].red, 2) +
+                           pow(image.pixels[idx].green - image.pixels[j].green, 2) +
+                           pow(image.pixels[idx].blue - image.pixels[j].blue, 2));
+
+        if (dist < minDist) {
+            minDist = dist;
+            closestIdx = j;
+        }
     }
-  }
-  return closestIdx;
+    return closestIdx;
 }
 
-// Eliminar colores menos frecuentes
+// Eliminar los colores menos frecuentes y reemplazarlos con el color más cercano
 void removeLeastFrequentColors(AOS &image, const int n) {
-  const int pixelCount = image.width * image.height;
-  vector<int> freq = calculateColorFrequencies(image, pixelCount);
-  vector<int> indices(pixelCount);
-  iota(indices.begin(), indices.end(), 0);
+    vector<int> freq = calculateColorFrequencies(image);
+    vector<int> indices(image.pixels.size());
+    iota(indices.begin(), indices.end(), 0);
 
-  sort(indices.begin(), indices.end(), [&](int a, int b) {
-    return freq[a] < freq[b] || (freq[a] == freq[b] && tie(image.pixels[a].blue, image.pixels[a].green, image.pixels[a].red) > tie(image.pixels[b].blue, image.pixels[b].green, image.pixels[b].red));
-  });
+    // Ordenar los índices por frecuencia en orden ascendente
+    sort(indices.begin(), indices.end(), [&](int a, int b) {
+        return freq[a] < freq[b];
+    });
 
-  vector<int> colorsToRemove(indices.begin(), indices.begin() + n);
-  vector<int> replacements(pixelCount, -1);
-  for (int idx : colorsToRemove) {
-    replacements[idx] = findClosestColor(image, idx, colorsToRemove);
-  }
+    // Obtener los índices de los colores menos frecuentes
+    vector<int> colorsToRemove(indices.begin(), indices.begin() + n);
 
-  for (int i = 0; i < pixelCount; ++i) {
-    if (replacements[i] != -1) {
-      int replaceIdx = replacements[i];
-      image.pixels[i].red = image.pixels[replaceIdx].red;
-      image.pixels[i].green = image.pixels[replaceIdx].green;
-      image.pixels[i].blue = image.pixels[replaceIdx].blue;
+    // Reemplazar cada color menos frecuente con el color más cercano
+    for (int idx : colorsToRemove) {
+        int closestIdx = findClosestColor(image, idx, colorsToRemove);
+        if (closestIdx != -1) { // Asegurarse de que se encontró un color válido
+            image.pixels[idx].red = image.pixels[closestIdx].red;
+            image.pixels[idx].green = image.pixels[closestIdx].green;
+            image.pixels[idx].blue = image.pixels[closestIdx].blue;
+        }
     }
+}
+// Interpolación para el escalado
+unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent) {
+  int idx_ll = yl * image.width + xl;
+  int idx_hl = yl * image.width + xh;
+  int idx_lh = yh * image.width + xl;
+  int idx_hh = yh * image.width + xh;
+
+  unsigned short c_ll, c_hl, c_lh, c_hh;
+
+  if (colorComponent == 'r') {
+    c_ll = image.pixels[idx_ll].red;
+    c_hl = image.pixels[idx_hl].red;
+    c_lh = image.pixels[idx_lh].red;
+    c_hh = image.pixels[idx_hh].red;
+  } else if (colorComponent == 'g') {
+    c_ll = image.pixels[idx_ll].green;
+    c_hl = image.pixels[idx_hl].green;
+    c_lh = image.pixels[idx_lh].green;
+    c_hh = image.pixels[idx_hh].green;
+  } else {
+    c_ll = image.pixels[idx_ll].blue;
+    c_hl = image.pixels[idx_hl].blue;
+    c_lh = image.pixels[idx_lh].blue;
+    c_hh = image.pixels[idx_hh].blue;
   }
+
+  float c1 = c_ll + (c_hl - c_ll) * (x - xl);
+  float c2 = c_lh + (c_hh - c_lh) * (x - xl);
+  float interpolatedColor = c1 + (c2 - c1) * (y - yl);
+
+  return static_cast<unsigned short>(round(interpolatedColor));
 }
 
 // Función de compresión
