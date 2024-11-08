@@ -6,6 +6,7 @@
 #include <tuple>
 #include <algorithm> // for std::clamp
 #include <unordered_map>
+#include <cmath> 
 #include <numeric> // for std::iota
 
 using namespace std;
