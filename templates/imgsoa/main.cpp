@@ -8,7 +8,7 @@
 #include <numeric>
 #include <limits>
 #include <tuple>
-
+#include <ctime>
 using namespace std;
 
 // Constants to replace magic numbers
@@ -17,62 +17,47 @@ const int MAX_BYTE_VALUE = 255;
 const int COLOR_COMPONENTS = 3;
 const float EPSILON = 1e-5;
 
-struct SOA {
-    int width;
-    int height;
-    int maxval;
-    vector<unsigned short> red;
-    vector<unsigned short> green;
-    vector<unsigned short> blue;
-};
+#include "imgsoa.h"  // Asegúrate de que imgsoa.h contiene las declaraciones de SOA y scaleIntensitySOA
+
+using namespace std;
 
 int main() {
-    // Initialize an SOA structure to hold the image data
     SOA image;
-
-    // Example file path to a PPM file
-    string filePath = "example.ppm";
+    string inputFilePath = "lake-large.ppm";  // Cambia a la ruta de tu archivo de prueba
 
     try {
-        // Load the image from a PPM file
-        if (!filePMM(filePath, image)) {
-            cerr << "Failed to load the image from " << filePath << endl;
+        // Medir el tiempo antes de cargar la imagen
+        clock_t start = clock();
+
+        // Cargar la imagen desde el archivo .ppm
+        if (!filePMM(inputFilePath, image)) {
+            cerr << "Error: No se pudo cargar la imagen desde " << inputFilePath << endl;
             return 1;
         }
-        cout << "Image loaded successfully!" << endl;
-        
-        // Display the original image information
-        cout << "Original Image - Width: " << image.width 
-                  << ", Height: " << image.height 
-                  << ", Maxval: " << image.maxval << endl;
+        cout << "Imagen cargada exitosamente: " << inputFilePath << endl;
+        cout << "Dimensiones originales: " << image.width << "x" << image.height << ", Valor máximo original: " << image.maxval << endl;
 
-        // Scale the intensity of the image colors
-        int oldMaxIntensity = image.maxval;
-        int newMaxIntensity = 128; // Example target max intensity
-        scaleIntensitySOA(image, oldMaxIntensity, newMaxIntensity);
-        cout << "Image intensity scaled to new max intensity: " << newMaxIntensity << endl;
+        // Número de colores menos frecuentes a eliminar
+        int leastFrequentColorsToRemove = 2;
+        removeLeastFrequentColors(image, leastFrequentColorsToRemove);
 
-        // Create a new SOA struct to hold the resized image
-        SOA resizedImage;
+        // Medir el tiempo después de realizar el procesamiento de colores
+        clock_t end = clock();
 
-        // Resize the image to new dimensions (example values)
-        int newWidth = image.width / 2;
-        int newHeight = image.height / 2;
-        sizescaling(newHeight, newWidth, image, resizedImage);
-        cout << "Image resized to new dimensions - Width: " << newWidth 
-                  << ", Height: " << newHeight << endl;
+        // Calcular el tiempo en segundos
+        double elapsed_secs = double(end - start) / CLOCKS_PER_SEC;
+        cout << "Tiempo de ejecución: " << elapsed_secs << " segundos" << endl;
 
-        // Remove the least frequent colors
-        int leastFrequentColorsToRemove = 10; // Example number of colors to remove
-        removeLeastFrequentColors(resizedImage, leastFrequentColorsToRemove);
-        cout << "Removed " << leastFrequentColorsToRemove << " least frequent colors from the image." << endl;
-
-        // Process complete
-        cout << "Image processing complete!" << endl;
+        // Imprimir algunos resultados para verificar
+        cout << "Resultados después de removeLeastFrequentColors:" << endl;
+        for (int i = 0; i < min(10, static_cast<int>(image.red.size())); ++i) {
+            cout << "Píxel " << i << " - Rojo: " << image.red[i]
+                 << ", Verde: " << image.green[i]
+                 << ", Azul: " << image.blue[i] << endl;
+        }
 
     } catch (const exception &e) {
-        // Catch and print any errors encountered during processing
-        cerr << "An error occurred: " << e.what() << endl;
+        cerr << "Error: " << e.what() << endl;
         return 1;
     }
 
