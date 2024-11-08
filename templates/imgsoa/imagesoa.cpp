@@ -236,11 +236,9 @@ void writePixelIndices(std::ofstream ofs, vector<int> pixelIndices, int colorTab
             unsigned char index = static_cast<unsigned char>(colorIndex);
             ofs.write(reinterpret_cast<const char*>(&index), 1);
         } else if (colorTableSize <= MAX_COLOR_VALUE) {
-            unsigned char index = static_cast<unsigned char>(colorIndex);
-            writeLittleEndian(ofs, index, 2);
+            writeLittleEndian(ofs, static_cast<unsigned short>(colorIndex), 2);
         } else if (colorTableSize <= 4294967296) {
-            unsigned char index = static_cast<unsigned char>(colorIndex);
-            writeLittleEndian(ofs, index, 4);
+            writeLittleEndian(ofs, static_cast<unsigned int>(colorIndex), 4);
         }
     }
 }
@@ -249,7 +247,7 @@ void writePixelIndices(std::ofstream ofs, vector<int> pixelIndices, int colorTab
 void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
     for (int i = 0; i < byteCount; ++i) {
         unsigned short byte = value & 0xFF;  // Extraer el byte menos significativo
-        ofs.write(reinterpret_cast<const short*>(&byte), 1);
+        ofs.write(reinterpret_cast<const char*>(&byte), 1);
         value >>= 8;  // Desplazar a la derecha 8 bits para el siguiente byte
     }
 }
