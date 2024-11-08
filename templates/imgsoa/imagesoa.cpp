@@ -7,7 +7,11 @@
 #include <algorithm>
 #include <numeric>
 #include <limits>
+#include <map>
 #include <tuple>
+#include <unordered_map>
+#include <cstdint>
+#include <functional>
 
 using namespace std;
 
@@ -25,13 +29,77 @@ struct SOA {
     vector<unsigned short> green;
     vector<unsigned short> blue;
 };
-void compressionCPPM(const string &outputFile, const SOA &image);
-void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor);
-void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize);
-void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount);
-void writeLittleEndian(ofstream &ofs, unsigned int value, int byteCount);
+namespace std {
+    template <>
+    struct hash<std::tuple<unsigned short, unsigned short, unsigned short>> {
+        std::size_t operator()(const std::tuple<unsigned short, unsigned short, unsigned short>& t) const {
+            return std::hash<unsigned short>{}(std::get<0>(t)) ^
+                   (std::hash<unsigned short>{}(std::get<1>(t)) << 1) ^
+                   (std::hash<unsigned short>{}(std::get<2>(t)) << 2);
+        }
+    };
+}
+// Implementación de readLittleEndian para leer en little-endian
+uint32_t readLittleEndian(ifstream &ifs, int byteCount) {
+    uint32_t result = 0;
+    for (int i = 0; i < byteCount; ++i) {
+        uint8_t byte;
+        ifs.read(reinterpret_cast<char*>(&byte), 1);
+        result |= (byte << (8 * i));  // Coloca cada byte en su posición en formato little-endian
+    }
+    return result;
+}
 
-// Utility function to resize image color vectors
+
+// Función para leer un archivo PPM
+bool filePPM(const string &file , SOA &image) {
+    ifstream ifs(file.c_str(), ios::binary);
+    if (!ifs.is_open()) {
+        cerr << "No es posible abrir el archivo " << file << '\n';
+        return false;
+    }
+
+    string magicnb;
+    ifs >> magicnb;
+    if (magicnb != "P6") {
+        cerr << "El formato del archivo no es correcto (debería ser P6)" << '\n';
+        return false;
+    }
+    ifs >> image.width >> image.height >> image.maxval;
+    if (image.maxval <= 0 || image.maxval > 65535) {
+        cerr << "El valor máximo de color no está en el rango (1-65535)" << '\n';
+        return false;
+    }
+
+    ifs.ignore();  // Ignorar el salto de línea después del encabezado
+
+    int pixelCount = image.width * image.height;
+    image.red.resize(pixelCount);
+    image.green.resize(pixelCount);
+    image.blue.resize(pixelCount);
+    if (image.maxval <= 255) {
+        // Leer 1 byte por componente de color
+        for (int i = 0; i < pixelCount; ++i) {
+            unsigned char r, g, b;
+            ifs.read(reinterpret_cast<char*>(&r), 1);
+            ifs.read(reinterpret_cast<char*>(&g), 1);
+            ifs.read(reinterpret_cast<char*>(&b), 1);
+            image.red[i] = r;
+            image.green[i] = g;
+            image.blue[i] = b;
+        }
+    } else {
+        // Leer 2 bytes por componente de color en formato little-endian
+        for (int i = 0; i < pixelCount; ++i) {
+            image.red[i] = readLittleEndian(ifs, 2);
+            image.green[i] = readLittleEndian(ifs, 2);
+            image.blue[i] = readLittleEndian(ifs, 2);
+        }
+    }
+    return true;
+}
+
+
 void resizeImageVectors(SOA &image, int pixelCount, int bytes) {
     image.red.resize(bytes * pixelCount);
     image.green.resize(bytes * pixelCount);
@@ -47,8 +115,6 @@ void readImagePixels(ifstream &ifs, SOA &image, int pixelCount, int bytes) {
         ifs.read(reinterpret_cast<char*>(&image.blue[i * bytes]), bytes);
     }
 }
-
-// Function 2.1: Load PMM File with exception handling
 bool filePMM(const string &file, SOA &image) {
     ifstream ifs(file.c_str(), ios::binary);
     if (!ifs.is_open()) {
@@ -88,7 +154,6 @@ void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIn
     }
 }
 
-// Helper function for bilinear interpolation in size scaling
 unsigned short interpolatePixel(const vector<unsigned short> &color, int xl, int yl, int xh, int yh, float x, float y, int width) {
     float c1 = color[yl * width + xl] * (xh - x) + color[yl * width + xh] * (x - xl);
     float c2 = color[yh * width + xl] * (xh - x) + color[yh * width + xh] * (x - xl);
@@ -121,25 +186,33 @@ void sizescaling(const int newHeight, const int newWidth, const SOA &image, SOA 
 }
 
 // Helper for color frequency calculation
-vector<int> calculateColorFrequencies(const SOA &image, const int pixelCount) {
-    vector<int> freq(pixelCount, 0);
-    for (int i = 0; i < pixelCount; ++i) {
-        for (int j = 0; j < pixelCount; ++j) {
-            if (image.red[i] == image.red[j] && image.green[i] == image.green[j] && image.blue[i] == image.blue[j]) {
-                freq[i]++;
-            }
-        }
+vector<int> calculateColorFrequencies(const SOA &image) {
+    map<tuple<int, int, int>, int> colorFrequency;
+    vector<int> freq(image.red.size(), 0);
+
+    for (size_t i = 0; i < image.red.size(); ++i) {
+        tuple<int, int, int> color = make_tuple(image.red[i], image.green[i], image.blue[i]);
+        colorFrequency[color]++;
+    }
+
+    for (size_t i = 0; i < image.red.size(); ++i) {
+        tuple<int, int, int> color = make_tuple(image.red[i], image.green[i], image.blue[i]);
+        freq[i] = colorFrequency[color];
     }
     return freq;
 }
 
-// Function to find closest color by distance
+// Find the closest color by Euclidean distance
 int findClosestColor(const SOA &image, int idx, const vector<int> &excludedIndices) {
     double minDist = numeric_limits<double>::max();
     int closestIdx = -1;
     for (int j = 0; j < image.width * image.height; ++j) {
         if (find(excludedIndices.begin(), excludedIndices.end(), j) != excludedIndices.end()) continue;
-        double dist = sqrt(pow(image.red[idx] - image.red[j], 2) + pow(image.green[idx] - image.green[j], 2) + pow(image.blue[idx] - image.blue[j], 2));
+
+        double dist = sqrt(pow(image.red[idx] - image.red[j], 2) +
+                           pow(image.green[idx] - image.green[j], 2) +
+                           pow(image.blue[idx] - image.blue[j], 2));
+
         if (dist < minDist) {
             minDist = dist;
             closestIdx = j;
@@ -148,91 +221,41 @@ int findClosestColor(const SOA &image, int idx, const vector<int> &excludedIndic
     return closestIdx;
 }
 
-// Function 2.4: Remove Least Frequent Colors
+// Remove least frequent colors and replace with the closest color by Euclidean distance
 void removeLeastFrequentColors(SOA &image, const int n) {
-    const int pixelCount = image.width * image.height;
-    vector<int> freq = calculateColorFrequencies(image, pixelCount);
-    vector<int> indices(pixelCount);
+    vector<int> freq = calculateColorFrequencies(image);
+    vector<int> indices(image.red.size());
     iota(indices.begin(), indices.end(), 0);
 
+    // Sort indices by frequency in ascending order
     sort(indices.begin(), indices.end(), [&](int a, int b) {
-        return freq[a] < freq[b] || (freq[a] == freq[b] && tie(image.blue[a], image.green[a], image.red[a]) > tie(image.blue[b], image.green[b], image.red[b]));
+        return freq[a] < freq[b];
     });
 
+    // Get the indices of the least frequent colors
     vector<int> colorsToRemove(indices.begin(), indices.begin() + n);
-    vector<int> replacements(pixelCount, -1);
+
+    // Replace each least frequent color with the closest color by distance
     for (int idx : colorsToRemove) {
-        replacements[idx] = findClosestColor(image, idx, colorsToRemove);
-    }
-
-    for (int i = 0; i < pixelCount; ++i) {
-        if (replacements[i] != -1) {
-            int replaceIdx = replacements[i];
-            image.red[i] = image.red[replaceIdx];
-            image.green[i] = image.green[replaceIdx];
-            image.blue[i] = image.blue[replaceIdx];
+        int closestIdx = findClosestColor(image, idx, colorsToRemove);
+        if (closestIdx != -1) { // Ensure a valid closest color is found
+            image.red[idx] = image.red[closestIdx];
+            image.green[idx] = image.green[closestIdx];
+            image.blue[idx] = image.blue[closestIdx];
         }
     }
 }
-void compressionCPPM(const string &outputFile, SOA &image) {
-    ofstream ofs(outputFile, std::ios::binary);
-    if (!ofs || image.maxval <= 0 || image.maxval >= MAX_COLOR_VALUE) {
-        cerr << "Error al abrir el archivo o valor máximo fuera de rango" << endl;
-        return;
-    }
-    SOA colorTable;
-    colorTable.width = image.width;
-    colorTable.height = image.height;
-    colorTable.maxval = image.maxval;
-    vector<int> pixelIndices;
-    int totalPixels = image.width * image.height;
-    for (int i=0; i < totalPixels; i++) {
-        bool found = false;
-        for (int j = 0; j < colorTable.red.size(); ++j) {
-            if (image.red[i] == colorTable.red[j] && image.green[i] == colorTable.green[j] && image.blue[i] == colorTable.blue[j]) {
-                pixelIndices.push_back(j);
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            colorTable.red.push_back(image.red[i]);
-            colorTable.green.push_back(image.green[i]);
-            colorTable.blue.push_back(image.blue[i]);
-            pixelIndices.push_back(colorTable.red.size() - 1);
-        }
-    }
-    ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.red.size() << "\n";
-    int bytesPerColor = (image.maxval <= MAX_BYTE_VALUE) ? 1 : 2;
-    writeColorTable(ofs, colorTable, bytesPerColor);
-    int colorTableSize = colorTable.red.size();
-    writePixelIndices(ofs, pixelIndices, colorTable.red.size());
-    ofs.close();
-}
-
-// auxiliares para no pasarnos de 40 lineas por funcion 
-
-void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
-    for (int i = 0; i < colorTable.red.size(); ++i) {
-        if (bytesPerColor == 1) {
-            unsigned short r = static_cast<unsigned short>(colorTable.red[i]);
-            unsigned short g = static_cast<unsigned short>(colorTable.green[i]);
-            unsigned short b = static_cast<unsigned short>(colorTable.blue[i]);
-            ofs.write(reinterpret_cast<const char*>(&r), 1);
-            ofs.write(reinterpret_cast<const char*>(&g), 1);
-            ofs.write(reinterpret_cast<const char*>(&b), 1);
-        } else {
-            // Escribir en formato little endian
-            writeLittleEndian(ofs, colorTable.red[i], 2);
-            writeLittleEndian(ofs, colorTable.green[i], 2);
-            writeLittleEndian(ofs, colorTable.blue[i], 2);
-        }
+void writeLittleEndian(std::ofstream &ofs, unsigned short value, int byteCount) {
+    for (int i = 0; i < byteCount; ++i) {
+        unsigned char byte = value & 0xFF;  // Extract the least significant byte
+        ofs.write(reinterpret_cast<const char*>(&byte), 1);
+        value >>= 8;  // Shift right 8 bits for the next byte
     }
 }
 
-void writePixelIndices(std::ofstream ofs, vector<int> pixelIndices, int colorTableSize) {
+void writePixelIndices(std::ofstream &ofs, const std::vector<int> &pixelIndices, int colorTableSize) {
     for (int colorIndex : pixelIndices) {
-        if (colorTableSize <= MAX_BYTE_VALUE+1) {
+        if (colorTableSize <= MAX_BYTE_VALUE + 1) {
             unsigned char index = static_cast<unsigned char>(colorIndex);
             ofs.write(reinterpret_cast<const char*>(&index), 1);
         } else if (colorTableSize <= MAX_COLOR_VALUE) {
@@ -243,11 +266,139 @@ void writePixelIndices(std::ofstream ofs, vector<int> pixelIndices, int colorTab
     }
 }
 
-
-void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
-    for (int i = 0; i < byteCount; ++i) {
-        unsigned short byte = value & 0xFF;  // Extraer el byte menos significativo
-        ofs.write(reinterpret_cast<const char*>(&byte), 1);
-        value >>= 8;  // Desplazar a la derecha 8 bits para el siguiente byte
+void writeColorTable(std::ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
+    for (int i = 0; i < colorTable.red.size(); ++i) {
+        if (bytesPerColor == 1) {
+            unsigned char r = static_cast<unsigned char>(colorTable.red[i]);
+            unsigned char g = static_cast<unsigned char>(colorTable.green[i]);
+            unsigned char b = static_cast<unsigned char>(colorTable.blue[i]);
+            ofs.write(reinterpret_cast<const char*>(&r), 1);
+            ofs.write(reinterpret_cast<const char*>(&g), 1);
+            ofs.write(reinterpret_cast<const char*>(&b), 1);
+        } else {
+            // Write in little-endian format
+            writeLittleEndian(ofs, colorTable.red[i], 2);
+            writeLittleEndian(ofs, colorTable.green[i], 2);
+            writeLittleEndian(ofs, colorTable.blue[i], 2);
+        }
     }
+}
+
+void compressionCPPM(const std::string &outputFile, SOA &image) {
+    std::ofstream ofs(outputFile, std::ios::binary);
+    if (!ofs || image.maxval <= 0 || image.maxval >= MAX_COLOR_VALUE) {
+        std::cerr << "Error: Could not open file or maxval out of range" << std::endl;
+        return;
+    }
+
+    SOA colorTable;
+    colorTable.width = image.width;
+    colorTable.height = image.height;
+    colorTable.maxval = image.maxval;
+    std::vector<int> pixelIndices;
+    int totalPixels = image.width * image.height;
+    std::unordered_map<std::tuple<unsigned short, unsigned short, unsigned short>, int> colorMap;
+    for (int i = 0; i < totalPixels; i++) {
+        auto color = std::make_tuple(image.red[i], image.green[i], image.blue[i]);
+
+        // Buscar el color en el mapa
+        auto it = colorMap.find(color);
+        if (it != colorMap.end()) {
+            // Si el color ya existe, añade el índice correspondiente
+            pixelIndices.push_back(it->second);
+        } else {
+            // Si el color es nuevo, agrégalo a la tabla de colores y al mapa
+            int newIndex = colorTable.red.size();
+            colorTable.red.push_back(image.red[i]);
+            colorTable.green.push_back(image.green[i]);
+            colorTable.blue.push_back(image.blue[i]);
+            colorMap[color] = newIndex;
+            pixelIndices.push_back(newIndex);
+        }
+    }
+
+    ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.red.size() << "\n";
+    int bytesPerColor = (image.maxval <= MAX_BYTE_VALUE) ? 1 : 2;
+    writeColorTable(ofs, colorTable, bytesPerColor);
+    writePixelIndices(ofs, pixelIndices, colorTable.red.size());
+    ofs.close();
+}
+bool decompressCPPM(const std::string &inputFile, const std::string &outputFile) {
+    std::ifstream ifs(inputFile, std::ios::binary);
+    if (!ifs) {
+        std::cerr << "Error: No se pudo abrir el archivo de entrada " << inputFile << std::endl;
+        return false;
+    }
+
+    std::string format;
+    int width, height, maxval, colorTableSize;
+    ifs >> format >> width >> height >> maxval >> colorTableSize;
+
+    if (format != "C6") {
+        std::cerr << "Error: Formato de archivo incorrecto. Se esperaba 'C6'" << std::endl;
+        return false;
+    }
+
+    ifs.ignore();  // Ignorar salto de línea después del encabezado
+
+    SOA colorTable;
+    colorTable.width = width;
+    colorTable.height = height;
+    colorTable.maxval = maxval;
+    colorTable.red.resize(colorTableSize);
+    colorTable.green.resize(colorTableSize);
+    colorTable.blue.resize(colorTableSize);
+
+    // Leer la tabla de colores
+    int bytesPerColor = (maxval <= 255) ? 1 : 2;
+    for (int i = 0; i < colorTableSize; ++i) {
+        if (bytesPerColor == 1) {
+            unsigned char r, g, b;
+            ifs.read(reinterpret_cast<char*>(&r), 1);
+            ifs.read(reinterpret_cast<char*>(&g), 1);
+            ifs.read(reinterpret_cast<char*>(&b), 1);
+            colorTable.red[i] = r;
+            colorTable.green[i] = g;
+            colorTable.blue[i] = b;
+        } else {
+            unsigned short r, g, b;
+            ifs.read(reinterpret_cast<char*>(&r), 2);
+            ifs.read(reinterpret_cast<char*>(&g), 2);
+            ifs.read(reinterpret_cast<char*>(&b), 2);
+            colorTable.red[i] = r;
+            colorTable.green[i] = g;
+            colorTable.blue[i] = b;
+        }
+    }
+
+    // Leer los índices de píxeles
+    std::vector<int> pixelIndices(width * height);
+    int bitsPerIndex = static_cast<int>(ceil(log2(colorTableSize)));
+    int indicesPerByte = 8 / bitsPerIndex;
+    int bitPos = 0;
+    unsigned char buffer;
+    ifs.read(reinterpret_cast<char*>(&buffer), 1);
+
+    for (int &index : pixelIndices) {
+        index = (buffer >> bitPos) & ((1 << bitsPerIndex) - 1);
+        bitPos += bitsPerIndex;
+        if (bitPos >= 8) {
+            bitPos -= 8;
+            ifs.read(reinterpret_cast<char*>(&buffer), 1);
+            index |= (buffer & ((1 << bitPos) - 1)) << (bitsPerIndex - bitPos);
+        }
+    }
+
+    ifs.close();
+
+    // Guardar la imagen descomprimida en formato PPM
+    std::ofstream ofs(outputFile, std::ios::binary);
+    ofs << "P6\n" << width << " " << height << "\n" << maxval << "\n";
+    for (int index : pixelIndices) {
+        ofs.put(static_cast<unsigned char>(colorTable.red[index]));
+        ofs.put(static_cast<unsigned char>(colorTable.green[index]));
+        ofs.put(static_cast<unsigned char>(colorTable.blue[index]));
+    }
+    ofs.close();
+    return true;
 }
