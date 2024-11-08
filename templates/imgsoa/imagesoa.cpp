@@ -20,9 +20,9 @@ struct SOA {
     int width;
     int height;
     int maxval;
-    vector<unsigned char> red;
-    vector<unsigned char> green;
-    vector<unsigned char> blue;
+    vector<unsigned short> red;
+    vector<unsigned short> green;
+    vector<unsigned short> blue;
 };
 
 // Utility function to resize image color vectors
@@ -36,9 +36,9 @@ void resizeImageVectors(SOA &image, int pixelCount, int bytes) {
 void readImagePixels(ifstream &ifs, SOA &image, int pixelCount, int bytes) {
     for (int i = 0; i < pixelCount; i++) {
         // Added braces around each single-line if statement
-        ifs.read(reinterpret_cast<char*>(&image.red[i * bytes]), bytes);
-        ifs.read(reinterpret_cast<char*>(&image.green[i * bytes]), bytes);
-        ifs.read(reinterpret_cast<char*>(&image.blue[i * bytes]), bytes);
+        ifs.read(reinterpret_cast<short*>(&image.red[i * bytes]), bytes);
+        ifs.read(reinterpret_cast<short*>(&image.green[i * bytes]), bytes);
+        ifs.read(reinterpret_cast<short*>(&image.blue[i * bytes]), bytes);
     }
 }
 
@@ -72,9 +72,9 @@ bool filePMM(const string &file, SOA &image) {
 void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIntensity) {
     const int pixelCount = static_cast<int>(image.red.size());
     for (int i = 0; i < pixelCount; ++i) {
-        auto scaleAndClamp = [&](unsigned char color) {
+        auto scaleAndClamp = [&](unsigned short color) {
             float scaledValue = round(color * static_cast<float>(newMaxIntensity) / oldMaxIntensity);
-            return static_cast<unsigned char>(min(max(0.0f, scaledValue), static_cast<float>(newMaxIntensity)));
+            return static_cast<unsigned short>(min(max(0.0f, scaledValue), static_cast<float>(newMaxIntensity)));
         };
         image.red[i] = scaleAndClamp(image.red[i]);
         image.green[i] = scaleAndClamp(image.green[i]);
@@ -83,10 +83,10 @@ void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIn
 }
 
 // Helper function for bilinear interpolation in size scaling
-unsigned char interpolatePixel(const vector<unsigned char> &color, int xl, int yl, int xh, int yh, float x, float y, int width) {
+unsigned short interpolatePixel(const vector<unsigned short> &color, int xl, int yl, int xh, int yh, float x, float y, int width) {
     float c1 = color[yl * width + xl] * (xh - x) + color[yl * width + xh] * (x - xl);
     float c2 = color[yh * width + xl] * (xh - x) + color[yh * width + xh] * (x - xl);
-    return static_cast<unsigned char>(c1 * (yh - y) + c2 * (y - yl));
+    return static_cast<unsigned short>(c1 * (yh - y) + c2 * (y - yl));
 }
 
 // Function 2.3: Size Scaling with bilinear interpolation
@@ -175,6 +175,9 @@ void compressionCPPM(const string &outputFile, SOA &image) {
         return;
     }
     SOA colorTable;
+    colorTable.width = image.width;
+    colorTable.height = image.height;
+    colorTable.maxval = image.maxval;
     vector<int> pixelIndices;
     int totalPixels = image.width * image.height;
     for (int i=0; i < totalPixels; i++) {
@@ -194,8 +197,9 @@ void compressionCPPM(const string &outputFile, SOA &image) {
         }
     }
     ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.red.size() << "\n";
-    writeColorTable(ofs, colorTable, (image.maxval <= MAX_BYTE_VALUE) ? 1 : 2);
-    writePixelIndices(ofs, pixelIndices, colorTable.size());
+    int bytesPerColor = (image.maxval <= MAX_BYTE_VALUE) ? 1 : 2;
+    writeColorTable(ofs, colorTable, bytesPerColor);
+    writePixelIndices(ofs, pixelIndices, colorTable.red.size());
     ofs.close();
 }
 
@@ -204,10 +208,14 @@ void compressionCPPM(const string &outputFile, SOA &image) {
 void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
     for (int i = 0; i < colorTable.red.size(); ++i) {
         if (bytesPerColor == 1) {
-            ofs.write(reinterpret_cast<const char*>(&colorTable.red[i]), 1);
-            ofs.write(reinterpret_cast<const char*>(&colorTable.green[i]), 1);
-            ofs.write(reinterpret_cast<const char*>(&colorTable.blue[i]), 1);
+            unsigned short r = static_cast<unsigned short>(colorTable.red[i]);
+            unsigned short g = static_cast<unsigned short>(colorTable.green[i]);
+            unsigned short b = static_cast<unsigned short>(colorTable.blue[i]);
+            ofs.write(reinterpret_cast<const short*>(&r), 1);
+            ofs.write(reinterpret_cast<const short*>(&g), 1);
+            ofs.write(reinterpret_cast<const short*>(&b), 1);
         } else {
+            // Escribir en formato little endian
             writeLittleEndian(ofs, colorTable.red[i], 2);
             writeLittleEndian(ofs, colorTable.green[i], 2);
             writeLittleEndian(ofs, colorTable.blue[i], 2);
@@ -218,21 +226,23 @@ void writeColorTable(ofstream &ofs, const SOA &colorTable, int bytesPerColor) {
 void writePixelIndices(ofs, pixelIndices, int colorTable.red.size()) {
     for (int colorIndex : pixelIndices) {
         if (colorTableSize <= MAX_BYTE_VALUE+1) {
-            unsigned char index = static_cast<unsigned char>(colorIndex);
-            ofs.write(reinterpret_cast<const char*>(&index), 1);
+            unsigned short index = static_cast<unsigned short>(colorIndex);
+            ofs.write(reinterpret_cast<const short*>(&index), 1);
         } else if (colorTableSize <= MAX_COLOR_VALUE) {
-            writeLittleEndian(ofs, static_cast<unsigned short>(colorIndex), 2);
+            unsigned short index = static_cast<unsigned short>(colorIndex);
+            writeLittleEndian(ofs, index, 2);
         } else if (colorTableSize <= 4294967296) {
-            writeLittleEndian(ofs, static_cast<unsigned int>(colorIndex), 4);
+            unsigned short index = static_cast<unsigned short>(colorIndex);
+            writeLittleEndian(ofs, index, 4);
         }
     }
 }
 
 
-void writeLittleEndian(ofstream &ofs, unsigned int value, int byteCount) {
+void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
     for (int i = 0; i < byteCount; ++i) {
-        unsigned char byte = value & 0xFF;  // Extraer el byte menos significativo
-        ofs.write(reinterpret_cast<const char*>(&byte), 1);
+        unsigned short byte = value & 0xFF;  // Extraer el byte menos significativo
+        ofs.write(reinterpret_cast<const short*>(&byte), 1);
         value >>= 8;  // Desplazar a la derecha 8 bits para el siguiente byte
     }
 }
