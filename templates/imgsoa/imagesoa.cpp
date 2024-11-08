@@ -180,9 +180,7 @@ void compressionCPPM(const string &outputFile, SOA &image) {
     for (int i=0; i < totalPixels; i++) {
         bool found = false;
         for (int j = 0; j < colorTable.red.size(); ++j) {
-            if (image.red[i] == colorTable.red[j] &&
-                image.green[i] == colorTable.green[j] &&
-                image.blue[i] == colorTable.blue[j]) {
+            if (image.red[i] == colorTable.red[j] && image.green[i] == colorTable.green[j] && image.blue[i] == colorTable.blue[j]) {
                 pixelIndices.push_back(j);
                 found = true;
                 break;
@@ -217,7 +215,7 @@ void writeColorTable(ofstream &ofs, const vector<vector<unsigned char>> &colorTa
     }
 }
 
-void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize) {
+void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTable.Size) {
     for (int colorIndex : pixelIndices) {
         if (colorTableSize <= MAX_BYTE_VALUE+1) {
             unsigned char index = static_cast<unsigned char>(colorIndex);
