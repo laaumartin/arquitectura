@@ -1,19 +1,26 @@
 #include <vector>
 #include <string>
-#include<stdexcept>
+#include <stdexcept>
 #include <fstream>
 #include <iostream>
-#include<cmath>
-#include <algorithm> 
+#include <cmath>
+#include <algorithm> // for std::clamp
 #include <tuple>
 #include <unordered_map>
+#include <functional> // for std::hash
+#include <numeric> // for std::iota
+
 using namespace std;
 
 struct Pixel {
-    unsigned short red;  //puede que  este tipo de variable nos de fallos ya que solo soporta 1 byte de info. habria que preguntar. unsigned short
+    unsigned short red;
     unsigned short green;
     unsigned short blue;
 };
+
+bool operator==(const Pixel& lhs, const Pixel& rhs) {
+    return lhs.red == rhs.red && lhs.green == rhs.green && lhs.blue == rhs.blue;
+}
 
 struct AOS {
     int width;
@@ -21,6 +28,32 @@ struct AOS {
     int maxval;
     vector<Pixel> pixels; // Vector que almacena cada píxel completo
 };
+
+namespace std {
+    template <>
+    struct hash<std::tuple<unsigned short, unsigned short, unsigned short>> {
+        std::size_t operator()(const std::tuple<unsigned short, unsigned short, unsigned short>& t) const {
+            return std::hash<unsigned short>{}(std::get<0>(t)) ^
+                   (std::hash<unsigned short>{}(std::get<1>(t)) << 1) ^
+                   (std::hash<unsigned short>{}(std::get<2>(t)) << 2);
+        }
+    };
+}
+
+// Declaración de funciones
+void skipComments(ifstream &ifs);
+bool filePPM(const string &file , AOS &image);
+void scaleIntensityAOS(AOS& image, int newMaxIntensity);
+void sizescaling(const int newWidth, const int newHeight, const AOS &image, AOS &newImage);
+unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent);
+vector<int> calculateColorFrequencies(const AOS &image, const int pixelCount);
+int findClosestColor(const AOS &image, int idx, const vector<int> &excludedIndices);
+void removeLeastFrequentColors(AOS &image, const int n);
+void compressionCPPM(const string &outputFile, AOS &image);
+void writeColorTable(ofstream &ofs, const vector<Pixel> &colorTable, int bytesPerColor);
+void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int colorTableSize);
+void writeLittleEndian(ofstream &ofs, uint32_t value, int byteCount);
+
 
 //function 1
 bool filePMM(const string &file , AOS &image) {
@@ -98,9 +131,7 @@ void scaleIntensityAOS(AOS& image, int oldMaxIntensity, int newMaxIntensity) {
 void sizescaling(const int newHeight, const int newWidth, const AOS &image, AOS &newImage) {
     newImage.height = newHeight;
     newImage.width = newWidth;
-    newImage.red.resize(newHeight * newWidth);
-    newImage.green.resize(newHeight * newWidth);
-    newImage.blue.resize(newHeight * newWidth);
+    newImage.pixels.resize(newHeight * newWidth);
 
     for (int ynew = 0; ynew < newHeight; ++ynew) {
         for (int xnew = 0; xnew < newWidth; ++xnew) {
