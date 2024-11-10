@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <cmath>
 #include <numeric> // for std::iota
-#include "imageaos.h"
+#include "imgaos.h"
 #include <map>
 
 using namespace std;
@@ -230,30 +230,47 @@ unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh
 }
 
 // Función de compresión
-void compressionCPPM(const string &outputFile, AOS &image) {
-  ofstream ofs(outputFile, ios::binary);
-  if (!ofs || image.maxval <= 0 || image.maxval >= 65536) {
-    cerr << "Error al abrir el archivo o valor máximo fuera de rango" << '\n';
-    return;
-  }
-
-  vector<Pixel> colorTable;
-  vector<int> pixelIndices;
-  for (const auto& pixel : image.pixels) {
-    auto it = find(colorTable.begin(), colorTable.end(), pixel);
-    if (it != colorTable.end()) {
-      pixelIndices.push_back(distance(colorTable.begin(), it));
-    } else {
-      colorTable.push_back(pixel);
-      pixelIndices.push_back(colorTable.size() - 1);
+void compressionCPPM(const std::string &outputFile, AOS &image) {
+    std::ofstream ofs(outputFile, std::ios::binary);
+    if (!ofs || image.maxval <= 0 || image.maxval >= MAX_COLOR_VALUE) {
+        std::cerr << "Error: Could not open file or maxval out of range" << std::endl;
+        return;
     }
-  }
-  ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.size() << '\n';
-  writeColorTable(ofs, colorTable, (image.maxval <= 255) ? 1 : 2);
-  writePixelIndices(ofs, pixelIndices, colorTable.size());
 
-  ofs.close();
+    AOS colorTable;
+    colorTable.width = image.width;
+    colorTable.height = image.height;
+    colorTable.maxval = image.maxval;
+
+    std::vector<int> pixelIndices;
+    int totalPixels = image.width * image.height;
+    std::unordered_map<std::tuple<unsigned short, unsigned short, unsigned short>, int> colorMap;
+
+    for (int i = 0; i < totalPixels; i++) {
+        auto &pixel = image.pixels[i];
+        auto color = std::make_tuple(pixel.red, pixel.green, pixel.blue);
+
+        // Check if color already exists in map
+        auto it = colorMap.find(color);
+        if (it != colorMap.end()) {
+            // If color exists, add the corresponding index
+            pixelIndices.push_back(it->second);
+        } else {
+            // If color is new, add it to the color table and map
+            int newIndex = colorTable.pixels.size();
+            colorTable.pixels.push_back(pixel);
+            colorMap[color] = newIndex;
+            pixelIndices.push_back(newIndex);
+        }
+    }
+
+    ofs << "C6 " << image.width << " " << image.height << " " << image.maxval << " " << colorTable.pixels.size() << "\n";
+    int bytesPerColor = (image.maxval <= 255) ? 1 : 2;
+    writeColorTable(ofs, colorTable.pixels, bytesPerColor);
+    writePixelIndices(ofs, pixelIndices, colorTable.pixels.size());
+    ofs.close();
 }
+
 
 // Escribir tabla de colores
 void writeColorTable(ofstream &ofs, const vector<Pixel> &colorTable, int bytesPerColor) {
@@ -285,43 +302,11 @@ void writePixelIndices(ofstream &ofs, const vector<int> &pixelIndices, int color
 }
 
 // Escribir en formato little-endian
-void writeLittleEndian(ofstream &ofs, unsigned short value, int byteCount) {
-  for (int i = 0; i < byteCount; ++i) {
-    unsigned char byte = value & 0xFF;
-    ofs.write(reinterpret_cast<const char*>(&byte), 1);
-    value >>= 8;
-  }
+void writeLittleEndian(std::ofstream &ofs, unsigned int value, int byteCount) {
+    for (int i = 0; i < byteCount; ++i) {
+        unsigned char byte = value & 0xFF;
+        ofs.write(reinterpret_cast<const char*>(&byte), 1);
+        value >>= 8;
+    }
 }
 
-// Interpolación para el escalado
-unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent) {
-  int idx_ll = yl * image.width + xl;
-  int idx_hl = yl * image.width + xh;
-  int idx_lh = yh * image.width + xl;
-  int idx_hh = yh * image.width + xh;
-
-  unsigned short c_ll, c_hl, c_lh, c_hh;
-
-  if (colorComponent == 'r') {
-    c_ll = image.pixels[idx_ll].red;
-    c_hl = image.pixels[idx_hl].red;
-    c_lh = image.pixels[idx_lh].red;
-    c_hh = image.pixels[idx_hh].red;
-  } else if (colorComponent == 'g') {
-    c_ll = image.pixels[idx_ll].green;
-    c_hl = image.pixels[idx_hl].green;
-    c_lh = image.pixels[idx_lh].green;
-    c_hh = image.pixels[idx_hh].green;
-  } else {
-    c_ll = image.pixels[idx_ll].blue;
-    c_hl = image.pixels[idx_hl].blue;
-    c_lh = image.pixels[idx_lh].blue;
-    c_hh = image.pixels[idx_hh].blue;
-  }
-
-  float c1 = c_ll + (c_hl - c_ll) * (x - xl);
-  float c2 = c_lh + (c_hh - c_lh) * (x - xl);
-  float interpolatedColor = c1 + (c2 - c1) * (y - yl);
-
-  return static_cast<unsigned short>(round(interpolatedColor));
-}
