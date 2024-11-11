@@ -8,10 +8,11 @@
 #include <unordered_map>
 #include <cmath>
 #include <numeric> // for std::iota
-#include "imgaos.h"
+#include "imageaos.h"
 #include <map>
 
 using namespace std;
+
 
 namespace std {
   template <>
@@ -24,11 +25,10 @@ namespace std {
   };
 }
 
-
 // Declaración de funciones
 void skipComments(ifstream &ifs);
 bool filePPM(const string &file , AOS &image);
-void scaleIntensityAOS(AOS& image, int newMaxIntensity);
+void scaleIntensityAOS(AOS& image,int oldMaxIntensity, int newMaxIntensity);
 void sizescaling(const int newWidth, const int newHeight, const AOS &image, AOS &newImage);
 unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent);
 vector<int> calculateColorFrequencies(const AOS &image, const int pixelCount);
@@ -107,9 +107,10 @@ void scaleIntensityAOS(AOS& image, int oldMaxIntensity, int newMaxIntensity) {
     image.pixels[i].green = static_cast<unsigned char>(round(image.pixels[i].green * newMaxIntensity / oldMaxIntensity));
     image.pixels[i].blue = static_cast<unsigned char>(round(image.pixels[i].blue * newMaxIntensity / oldMaxIntensity));
 
-    //image.pixels[i].red = clamp(image.pixels[i].red, 0, newMaxIntensity);
-    //image.pixels[i].green = clamp(image.pixels[i].green, 0, newMaxIntensity);
-    //image.pixels[i].blue = clamp(image.pixels[i].blue, 0, newMaxIntensity);
+   	image.pixels[i].red = clamp(image.pixels[i].red, static_cast<unsigned short>(0), static_cast<unsigned short>(newMaxIntensity));
+    image.pixels[i].green = clamp(image.pixels[i].green, static_cast<unsigned short>(0), static_cast<unsigned short>(newMaxIntensity));
+    image.pixels[i].blue = clamp(image.pixels[i].blue, static_cast<unsigned short>(0), static_cast<unsigned short>(newMaxIntensity));
+
   }
 }
 
@@ -134,6 +135,39 @@ void sizescaling(const int newHeight, const int newWidth, const AOS &image, AOS 
       newImage.pixels[newIndex].blue = interpolatePixel(image, xl, yl, xh, yh, x, y, 'b');
     }
   }
+}
+
+// Interpolación para el escalado
+unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent) {
+  int idx_ll = yl * image.width + xl;
+  int idx_hl = yl * image.width + xh;
+  int idx_lh = yh * image.width + xl;
+  int idx_hh = yh * image.width + xh;
+
+  unsigned short c_ll, c_hl, c_lh, c_hh;
+
+  if (colorComponent == 'r') {
+    c_ll = image.pixels[idx_ll].red;
+    c_hl = image.pixels[idx_hl].red;
+    c_lh = image.pixels[idx_lh].red;
+    c_hh = image.pixels[idx_hh].red;
+  } else if (colorComponent == 'g') {
+    c_ll = image.pixels[idx_ll].green;
+    c_hl = image.pixels[idx_hl].green;
+    c_lh = image.pixels[idx_lh].green;
+    c_hh = image.pixels[idx_hh].green;
+  } else {
+    c_ll = image.pixels[idx_ll].blue;
+    c_hl = image.pixels[idx_hl].blue;
+    c_lh = image.pixels[idx_lh].blue;
+    c_hh = image.pixels[idx_hh].blue;
+  }
+
+  float c1 = c_ll + (c_hl - c_ll) * (x - xl);
+  float c2 = c_lh + (c_hh - c_lh) * (x - xl);
+  float interpolatedColor = c1 + (c2 - c1) * (y - yl);
+
+  return static_cast<unsigned short>(round(interpolatedColor));
 }
 // Función auxiliar para calcular la frecuencia de cada color en AOS
 vector<int> calculateColorFrequencies(const AOS &image) {
@@ -195,38 +229,6 @@ void removeLeastFrequentColors(AOS &image, const int n) {
             image.pixels[idx].blue = image.pixels[closestIdx].blue;
         }
     }
-}
-// Interpolación para el escalado
-unsigned short interpolatePixel(const AOS &image, int xl, int yl, int xh, int yh, float x, float y, char colorComponent) {
-  int idx_ll = yl * image.width + xl;
-  int idx_hl = yl * image.width + xh;
-  int idx_lh = yh * image.width + xl;
-  int idx_hh = yh * image.width + xh;
-
-  unsigned short c_ll, c_hl, c_lh, c_hh;
-
-  if (colorComponent == 'r') {
-    c_ll = image.pixels[idx_ll].red;
-    c_hl = image.pixels[idx_hl].red;
-    c_lh = image.pixels[idx_lh].red;
-    c_hh = image.pixels[idx_hh].red;
-  } else if (colorComponent == 'g') {
-    c_ll = image.pixels[idx_ll].green;
-    c_hl = image.pixels[idx_hl].green;
-    c_lh = image.pixels[idx_lh].green;
-    c_hh = image.pixels[idx_hh].green;
-  } else {
-    c_ll = image.pixels[idx_ll].blue;
-    c_hl = image.pixels[idx_hl].blue;
-    c_lh = image.pixels[idx_lh].blue;
-    c_hh = image.pixels[idx_hh].blue;
-  }
-
-  float c1 = c_ll + (c_hl - c_ll) * (x - xl);
-  float c2 = c_lh + (c_hh - c_lh) * (x - xl);
-  float interpolatedColor = c1 + (c2 - c1) * (y - yl);
-
-  return static_cast<unsigned short>(round(interpolatedColor));
 }
 
 // Función de compresión
