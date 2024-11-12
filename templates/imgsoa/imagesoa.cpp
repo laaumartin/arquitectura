@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <cstdint>
 #include <functional>
+#include <unordered_set>
+#include <queue>
 
 using namespace std;
 
@@ -141,7 +143,7 @@ bool filePMM(const string &file, SOA &image) {
 }
 
 // Function 2.2: Scale Intensity with clamping (avoiding narrowing conversions)
-void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIntensity) {
+SOA scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIntensity) {
     const int pixelCount = static_cast<int>(image.red.size());
     for (int i = 0; i < pixelCount; ++i) {
         auto scaleAndClamp = [&](unsigned short color) {
@@ -152,6 +154,7 @@ void scaleIntensitySOA(SOA &image, const int oldMaxIntensity, const int newMaxIn
         image.green[i] = scaleAndClamp(image.green[i]);
         image.blue[i] = scaleAndClamp(image.blue[i]);
     }
+    return
 }
 
 unsigned short interpolatePixel(const vector<unsigned short> &color, int xl, int yl, int xh, int yh, float x, float y, int width) {
@@ -185,66 +188,102 @@ void sizescaling(const int newHeight, const int newWidth, const SOA &image, SOA 
     }
 }
 
-// Helper for color frequency calculation
-vector<int> calculateColorFrequencies(const SOA &image) {
-    map<tuple<int, int, int>, int> colorFrequency;
-    vector<int> freq(image.red.size(), 0);
+const int RED_SHIFT = 16;
+const int GREEN_SHIFT = 8;
+const int BLUE_MASK = 0xFF;
 
-    for (size_t i = 0; i < image.red.size(); ++i) {
-        tuple<int, int, int> color = make_tuple(image.red[i], image.green[i], image.blue[i]);
-        colorFrequency[color]++;
-    }
-
-    for (size_t i = 0; i < image.red.size(); ++i) {
-        tuple<int, int, int> color = make_tuple(image.red[i], image.green[i], image.blue[i]);
-        freq[i] = colorFrequency[color];
-    }
-    return freq;
+// Función auxiliar para empaquetar valores RGB en un solo int
+inline int packColor(int red, int green, int blue) {
+    return (red << RED_SHIFT) | (green << GREEN_SHIFT) | blue;
 }
 
-// Find the closest color by Euclidean distance
-int findClosestColor(const SOA &image, int idx, const vector<int> &excludedIndices) {
-    double minDist = numeric_limits<double>::max();
-    int closestIdx = -1;
-    for (int j = 0; j < image.width * image.height; ++j) {
-        if (find(excludedIndices.begin(), excludedIndices.end(), j) != excludedIndices.end()) continue;
+// Función auxiliar para desempaquetar un color int en valores RGB
+inline tuple<int, int, int> unpackColor(int color) {
+    int red = (color >> RED_SHIFT) & BLUE_MASK;
+    int green = (color >> GREEN_SHIFT) & BLUE_MASK;
+    int blue = color & BLUE_MASK;
+    return {red, green, blue};
+}
 
-        double dist = sqrt(pow(image.red[idx] - image.red[j], 2) +
-                           pow(image.green[idx] - image.green[j], 2) +
-                           pow(image.blue[idx] - image.blue[j], 2));
+// Calcula la frecuencia de cada color único usando enteros
+unordered_map<int, int> calculateColorFrequencies(const SOA &image) {
+    unordered_map<int, int> colorFrequency;
 
-        if (dist < minDist) {
-            minDist = dist;
-            closestIdx = j;
+    for (size_t i = 0; i < image.red.size(); ++i) {
+        int color = packColor(image.red[i], image.green[i], image.blue[i]);
+        ++colorFrequency[color];
+    }
+
+    return colorFrequency;
+}
+
+// Memoización de colores más cercanos
+unordered_map<int, int> closestColorCache;
+
+// Encuentra el color más cercano usando la distancia euclidiana sin calcular la raíz cuadrada
+int findClosestColor(int color, const unordered_map<int, int> &colorFrequency, const std::unordered_set<int> &excludedColors) {
+    if (closestColorCache.find(color) != closestColorCache.end()) {
+        return closestColorCache[color];
+    }
+
+    int closestColor = color;
+    int minDistSquared = numeric_limits<int>::max();
+    auto [red, green, blue] = unpackColor(color);
+
+    for (const auto &[candidateColor, freq] : colorFrequency) {
+        if (excludedColors.count(candidateColor)) continue;
+
+        auto [candRed, candGreen, candBlue] = unpackColor(candidateColor);
+        int distSquared = (red - candRed) * (red - candRed) +
+                          (green - candGreen) * (green - candGreen) +
+                          (blue - candBlue) * (blue - candBlue);
+
+        if (distSquared < minDistSquared) {
+            minDistSquared = distSquared;
+            closestColor = candidateColor;
         }
     }
-    return closestIdx;
+
+    // Cachear el resultado
+    closestColorCache[color] = closestColor;
+    return closestColor;
 }
 
-// Remove least frequent colors and replace with the closest color by Euclidean distance
+// Elimina los colores menos frecuentes y los reemplaza usando enteros empaquetados
 void removeLeastFrequentColors(SOA &image, const int n) {
-    vector<int> freq = calculateColorFrequencies(image);
-    vector<int> indices(image.red.size());
-    iota(indices.begin(), indices.end(), 0);
 
-    // Sort indices by frequency in ascending order
-    sort(indices.begin(), indices.end(), [&](int a, int b) {
-        return freq[a] < freq[b];
-    });
+    // Calcular la frecuencia de cada color único usando enteros
+    auto colorFrequency = calculateColorFrequencies(image);
 
-    // Get the indices of the least frequent colors
-    vector<int> colorsToRemove(indices.begin(), indices.begin() + n);
+    // Ordenar colores únicos por frecuencia en orden ascendente utilizando partial_sort
+    std::vector<std::pair<int, int>> sortedColors(colorFrequency.begin(), colorFrequency.end());
+    if (n < sortedColors.size()) {
+        partial_sort(sortedColors.begin(), sortedColors.begin() + n, sortedColors.end(), [](const auto &a, const auto &b) {
+            return a.second < b.second;
+        });
+    }
 
-    // Replace each least frequent color with the closest color by distance
-    for (int idx : colorsToRemove) {
-        int closestIdx = findClosestColor(image, idx, colorsToRemove);
-        if (closestIdx != -1) { // Ensure a valid closest color is found
-            image.red[idx] = image.red[closestIdx];
-            image.green[idx] = image.green[closestIdx];
-            image.blue[idx] = image.blue[closestIdx];
+    // Obtener los colores menos frecuentes
+    std::unordered_set<int> colorsToRemove;
+    for (int i = 0; i < n && i < static_cast<int>(sortedColors.size()); ++i) {
+        colorsToRemove.insert(sortedColors[i].first);
+    }
+
+    // Reemplazar cada color menos frecuente en la imagen con el color más cercano
+    for (size_t i = 0; i < image.red.size(); ++i) {
+        int color = packColor(image.red[i], image.green[i], image.blue[i]);
+
+        if (colorsToRemove.find(color) != colorsToRemove.end()) {
+            int closestColor = findClosestColor(color, colorFrequency, colorsToRemove);
+
+            auto [newRed, newGreen, newBlue] = unpackColor(closestColor);
+            image.red[i] = newRed;
+            image.green[i] = newGreen;
+            image.blue[i] = newBlue;
         }
     }
 }
+
 void writeLittleEndian(std::ofstream &ofs, unsigned short value, int byteCount) {
     for (int i = 0; i < byteCount; ++i) {
         unsigned char byte = value & 0xFF;  // Extract the least significant byte
@@ -322,83 +361,4 @@ void compressionCPPM(const std::string &outputFile, SOA &image) {
     writeColorTable(ofs, colorTable, bytesPerColor);
     writePixelIndices(ofs, pixelIndices, colorTable.red.size());
     ofs.close();
-}
-bool decompressCPPM(const std::string &inputFile, const std::string &outputFile) {
-    std::ifstream ifs(inputFile, std::ios::binary);
-    if (!ifs) {
-        std::cerr << "Error: No se pudo abrir el archivo de entrada " << inputFile << std::endl;
-        return false;
-    }
-
-    std::string format;
-    int width, height, maxval, colorTableSize;
-    ifs >> format >> width >> height >> maxval >> colorTableSize;
-
-    if (format != "C6") {
-        std::cerr << "Error: Formato de archivo incorrecto. Se esperaba 'C6'" << std::endl;
-        return false;
-    }
-
-    ifs.ignore();  // Ignorar salto de línea después del encabezado
-
-    SOA colorTable;
-    colorTable.width = width;
-    colorTable.height = height;
-    colorTable.maxval = maxval;
-    colorTable.red.resize(colorTableSize);
-    colorTable.green.resize(colorTableSize);
-    colorTable.blue.resize(colorTableSize);
-
-    // Leer la tabla de colores
-    int bytesPerColor = (maxval <= 255) ? 1 : 2;
-    for (int i = 0; i < colorTableSize; ++i) {
-        if (bytesPerColor == 1) {
-            unsigned char r, g, b;
-            ifs.read(reinterpret_cast<char*>(&r), 1);
-            ifs.read(reinterpret_cast<char*>(&g), 1);
-            ifs.read(reinterpret_cast<char*>(&b), 1);
-            colorTable.red[i] = r;
-            colorTable.green[i] = g;
-            colorTable.blue[i] = b;
-        } else {
-            unsigned short r, g, b;
-            ifs.read(reinterpret_cast<char*>(&r), 2);
-            ifs.read(reinterpret_cast<char*>(&g), 2);
-            ifs.read(reinterpret_cast<char*>(&b), 2);
-            colorTable.red[i] = r;
-            colorTable.green[i] = g;
-            colorTable.blue[i] = b;
-        }
-    }
-
-    // Leer los índices de píxeles
-    std::vector<int> pixelIndices(width * height);
-    int bitsPerIndex = static_cast<int>(ceil(log2(colorTableSize)));
-    int indicesPerByte = 8 / bitsPerIndex;
-    int bitPos = 0;
-    unsigned char buffer;
-    ifs.read(reinterpret_cast<char*>(&buffer), 1);
-
-    for (int &index : pixelIndices) {
-        index = (buffer >> bitPos) & ((1 << bitsPerIndex) - 1);
-        bitPos += bitsPerIndex;
-        if (bitPos >= 8) {
-            bitPos -= 8;
-            ifs.read(reinterpret_cast<char*>(&buffer), 1);
-            index |= (buffer & ((1 << bitPos) - 1)) << (bitsPerIndex - bitPos);
-        }
-    }
-
-    ifs.close();
-
-    // Guardar la imagen descomprimida en formato PPM
-    std::ofstream ofs(outputFile, std::ios::binary);
-    ofs << "P6\n" << width << " " << height << "\n" << maxval << "\n";
-    for (int index : pixelIndices) {
-        ofs.put(static_cast<unsigned char>(colorTable.red[index]));
-        ofs.put(static_cast<unsigned char>(colorTable.green[index]));
-        ofs.put(static_cast<unsigned char>(colorTable.blue[index]));
-    }
-    ofs.close();
-    return true;
 }
