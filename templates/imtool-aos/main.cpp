@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "imageaos.cpp"   // Image processing functions
+#include "imageaos.cpp"   // Include the image processing functions for AOS
 
 using namespace std;
 
@@ -14,11 +14,11 @@ int main(int argc, char* argv[]) {
     string inputFile = argv[1];
     string outputFile = argv[2];
     string operation = argv[3];
-    SOA image;
+    AOS image;
 
-    // Load image from PPM file
+    // Load the image from a PPM file
     if (!filePPM(inputFile, image)) {
-        cerr << "Error: Could not open file " << inputFile << endl;
+        cerr << "Error with the file " << inputFile << endl;
         return -1;
     }
 
@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             int newMaxIntensity = stoi(argv[4]);
-            scaleIntensitySOA(image, image.maxval, newMaxIntensity);
+            scaleIntensityAOS(image, image.maxval, newMaxIntensity);
             filePPM(outputFile, image);  // Save the scaled image
         }
         else if (operation == "resize") {
@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
             }
             int newWidth = stoi(argv[4]);
             int newHeight = stoi(argv[5]);
-            SOA resizedImage;
+            AOS resizedImage;
             sizescaling(newWidth, newHeight, image, resizedImage);
             filePPM(outputFile, resizedImage);  // Save the resized image
         }
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
             return -1;
         }
     } catch (const invalid_argument& e) {
-        cerr << "Error: Invalid argument - " << e.what() << "\n";
+        cerr << "Error: invalid argument - " << e.what() << "\n";
         return -1;
     } catch (const exception& e) {
         cerr << "Error: " << e.what() << "\n";
